@@ -1,0 +1,20 @@
+%import common.CNAME -> IDENTIFIER
+%import common.WS
+
+start: statement*
+
+?statement: declaration ";"
+
+?declaration: IDENTIFIER ":" type
+
+type: func_type | plain_type
+
+?func_type: "(" ")" type
+
+?plain_type: IDENTIFIER
+
+COMMENT: /\/\/[^\n]*/
+
+%ignore WS
+%ignore COMMENT
+

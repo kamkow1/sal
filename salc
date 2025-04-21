@@ -5,69 +5,266 @@ import lark
 import os
 import abc
 import pprint
+import enum
+from llvmlite import ir
 
 class Node(abc.ABC):
     def __init__(self, line, col):
         self.line = line
         self.col  = col
 
-class Func_Type_Node(Node):
-    def __init__(self, line, col, return_type):
+class Modifier_Types(enum.Enum):
+    DECLARE = enum.auto()
+    DEFINE  = enum.auto()
+
+class Modifier_Node(Node):
+    def __init__(self, line, col, name):
+        self.line     = line
+        self.col      = col
+        self.modifier = Modifier_Types[name.upper()]
+
+class Proc_Node(Node):
+    def __init__(self, line, col, modifiers, name, proc_params, return_type, code_block):
         super().__init__(line, col)
+        self.modifiers   = modifiers
+        self.name        = name
+        self.proc_params = proc_params
         self.return_type = return_type
+        self.code_block  = code_block
 
 class Plain_Type_Node(Node):
-    def __init__(self, line, col, text):
+    def __init__(self, line, col, name):
         super().__init__(line, col)
-        self.text = text
+        self.name = name
 
-class Decl_Node(Node):
+class Proc_Params_Pair_Node(Node):
     def __init__(self, line, col, name, type_):
         super().__init__(line, col)
         self.name  = name
         self.type_ = type_
 
-class Start_Node(Node):
-    def __init__(self, line, col, decls):
+class Identifier_Node(Node):
+    def __init__(self, line, col, text):
         super().__init__(line, col)
-        self.decls = decls
+        self.text = text
+
+class Code_Block(Node):
+    def __init__(self, line, col, statements):
+        super().__init__(line, col)
+        self.statements = statements
+
+class Start_Node(Node):
+    def __init__(self, line, col, statements):
+        super().__init__(line, col)
+        self.statements = statements
 
 class Ast_Builder(lark.Transformer):
-    def func_type(self, items):
-        return_type = items[0]
-        return Func_Type_Node(items[0].line, items[0].column, return_type)
+    def IDENTIFIER(self, item):
+        return Identifier_Node(
+            item.line,
+            item.column,
+            str(item.value)
+        )
 
     def plain_type(self, items):
-        text = items[0].value
-        return Plain_Type_Node(items[0].line, items[0].column, text)
+        return Plain_Type_Node(
+            items[0].line,
+            items[0].col,
+            items[0]
+        )
 
-    def declaration(self, items):
-        name = items[0].value
+    def code_block(self, items):
+        if len(items) > 0:
+            return Code_Block(items[0].line, items[0].col, items)
+        else:
+            return Code_Block(-1, -1, items)
+
+    def proc_params_pair(self, items):
+        name = items[0]
         type_ = items[1]
-        return Decl_Node(items[0].line, items[0].column, name, type_)
+        return Proc_Params_Pair_Node(
+            items[0].line,
+            items[1].col,
+            name,
+            type_
+        )
+
+    def proc_params(self, items):
+        return items
+
+    def modifier(self, items):
+        return Modifier_Node(
+            items[0].line,
+            items[0].column,
+            items[0]
+        )
+
+    def proc(self, items):
+        modifiers = []
+        for item in items:
+            if isinstance(item, Modifier_Node):
+                modifiers.append(item)
+        name = items[len(modifiers):][0]
+        proc_params = items[len(modifiers)+1:][0]
+        return_type = items[len(modifiers)+2:][0]
+        code_block = items[len(modifiers)+3:][0] if len(items[len(modifiers)+3:]) > 0 else None
+
+        return Proc_Node(
+            items[0].line,
+            items[0].col,
+            modifiers,
+            name,
+            proc_params,
+            return_type,
+            code_block
+        )
 
     def start(self, items):
-        return Start_Node(0, 0, items)
+        return Start_Node(
+            items[0].line,
+            items[0].col,
+            items
+        )
 
-def visit(node):
-    if isinstance(node, Start_Node):
-        for decl in node.decls:
-            visit(decl)
-    elif isinstance(node, Decl_Node):
-        print(node.name)
-    else:
-        print("TODO: Unhandled node type " + str(type(node)))
-        print(pprint.pformat(vars(node), indent=4, width=1))
-        sys.exit(1)
+def is_void_type(t):
+    return type(t).__name__ == "VoidType"
 
-def process_source(source):
+class Stack_Frame:
+    def __init__(self):
+        self.allocas = {}
+
+class Proc:
+    def __init__(self, compiler, node, llvm_func, params):
+        self.compiler     = compiler
+        self.node         = node
+        self.llvm_func    = llvm_func
+        self.params       = params
+        self.stack_frames = []
+        self.returned     = False
+        self.builder      = None
+
+    def prologue(self):
+        prologue = self.llvm_func.append_basic_block("prologue")
+        self.builder = ir.IRBuilder(prologue)
+
+        self.stack_frames.append(Stack_Frame())
+
+        for i, p in enumerate(self.params):
+            self.stack_frames[-1].allocas[p[0]] = self.builder.alloca(p[1], name=p[0])
+            self.builder.store(self.llvm_func.args[i], self.stack_frames[-1].allocas[p[0]])
+
+    def epilogue(self):
+        if is_void_type(self.llvm_func.function_type.return_type) and not self.returned:
+            self.builder.position_at_end(self.builder.block)
+            self.builder.ret_void()
+        else:
+            self.compiler.error(self.compiler.source_path + ":" + str(self.node.line) + ":" + str(self.node.col)
+                        + ": return statement is missing for " + self.llvm_func.name + ".")
+
+class Compiler:
+    def __init__(self, source_path, ast):
+        self.ok = True
+        self.source_path = source_path
+        self.ast = ast
+        self.ast_visitors = {
+            "Start_Node":            self.visit_start_node,
+            "Proc_Node":             self.visit_proc_node,
+            "Plain_Type_Node":       self.visit_plain_type_node,
+            "Proc_Params_Pair_Node": self.visit_proc_params_pair_node,
+        }
+
+        self.procs_map = {}
+
+        self.types_map = {
+            "void": ir.VoidType(),
+            "int":  ir.IntType(32)
+        }
+
+        pre, ext = os.path.splitext(source_path)
+        self.module = ir.Module(pre + ".ll")
+
+    def error(self, msg):
+        print(msg)
+        self.ok = False
+
+    def proc_declared(self, node):
+        for m in node.modifiers:
+            if m.modifier == Modifier_Types.DECLARE:
+                return True
+        return False
+    
+    def proc_defined(self, node):
+        for m in node.modifiers:
+            if m.modifier == Modifier_Types.DEFINE:
+                return True
+        return False
+
+    def visit_start_node(self, node):
+        for statement in self.ast.statements:
+                self.visit(statement)
+        return None
+
+    def visit_proc_params_pair_node(self, node):
+        name = node.name.text
+        type_ = self.visit(node.type_)
+        return (name, type_)
+
+    def visit_plain_type_node(self, node):
+        name = node.name.text
+        return self.types_map[name]
+
+    def visit_proc_node(self, node):
+        return_type = self.visit(node.return_type)
+        proc_params = [self.visit(p) for p in node.proc_params]
+        name = node.name.text
+        
+        if name in self.procs_map:
+            self.error(self.source_path + ":" + str(node.line) + ":" + str(node.col)
+                    + ": Procedure " + name + " is already in scope")
+
+        if self.proc_declared(node) and self.proc_defined(node):
+            self.error(self.source_path + ":" + str(node.line) + ":" + str(node.col)
+                  + ": Procedure " + name + " cannot be defined and declared at the same time.")
+        
+        llvm_func = ir.Function(
+            self.module,
+            ir.FunctionType(return_type, [t[1] for t in proc_params]),
+            name
+        )
+        self.procs_map[name] = Proc(self, node, llvm_func, proc_params)
+        
+        if self.proc_defined(node) and node.code_block is None:
+            self.error(self.source_path + ":" + str(node.line) + ":" + str(node.col)
+                  + ": Procedure " + name + " is defined, but it's code block is missing.") 
+
+        if self.proc_defined(node):
+            self.procs_map[name].prologue()
+
+            if node.code_block is not None:
+                for statement in node.code_block.statements:
+                    self.visit(statement)
+
+            self.procs_map[name].epilogue()
+
+        return None
+
+    def visit(self, node):
+        return self.ast_visitors[type(node).__name__](node)
+
+    def compile(self):
+        self.visit(self.ast)
+
+def process_source(source_path, source):
     with open("sal.lark") as f:
         grammar = f.read()
     
     p = lark.Lark(grammar, start="start", ambiguity="explicit")
     tree = p.parse(source)
     transformed = Ast_Builder().transform(tree)
-    visit(transformed)
+    c = Compiler(source_path, transformed)
+    c.compile()
+    if c.ok:
+        print(c.module)
 
 class Command:
     def __init__(self, fn, desc):
@@ -86,7 +283,7 @@ def build_command(argv):
 
     with open(file, "r") as f:
         source = f.read()
-    process_source(source)
+    process_source(file, source)
 
 def help_command(argv):
     global commands

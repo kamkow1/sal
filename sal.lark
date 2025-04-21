@@ -1,19 +1,27 @@
 %import common.CNAME -> IDENTIFIER
 %import common.WS
 
+DECLARE: "declare"
+DEFINE: "define"
+COMMENT: /\/\/[^\n]*/
+
 start: statement*
 
-?statement: declaration ";"
+code_block: "{" statement* "}"
 
-?declaration: IDENTIFIER ":" type
+?statement: proc
 
-type: func_type | plain_type
+proc: modifier* "proc" IDENTIFIER proc_params type code_block?
 
-?func_type: "(" ")" type
+modifier: DECLARE | DEFINE
 
-?plain_type: IDENTIFIER
+proc_params_pair: IDENTIFIER type
 
-COMMENT: /\/\/[^\n]*/
+proc_params: "(" (proc_params_pair ("," proc_params_pair)*)? ")"
+
+?type: plain_type
+
+plain_type: IDENTIFIER
 
 %ignore WS
 %ignore COMMENT

@@ -1,3 +1,5 @@
 
-main : () void;
+define proc _start() void
+{
+}
 

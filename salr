@@ -520,10 +520,10 @@ class Command:
         self.fn   = fn
         self.desc = desc
 
-def build_command(argv):
+def run_command(argv):
     if len(argv) == 0:
         print("Bad arguments. Help:")
-        print(commands["build"].desc)
+        print(commands["run"].desc)
         sys.exit(1)
 
     file = argv.pop(0)
@@ -542,11 +542,11 @@ def help_command(argv):
         print(commands[command].desc)
 
 commands = {
-    "build": Command(
-        build_command,
+    "run": Command(
+        run_command,
         (
-            f"{sys.argv[0]} build <FILE> <options>\n"
-            "builds an executable from <FILE> source file\n"
+            f"{sys.argv[0]} run <FILE> <options>\n"
+            "Compile and run contetns of <FILE>\n"
         )
     ),
     "help":  Command(

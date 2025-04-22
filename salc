@@ -53,6 +53,30 @@ class Code_Block(Node):
         super().__init__(line, col)
         self.statements = statements
 
+class Variable_Node(Node):
+    def __init__(self, line, col, modifiers, name, type_, assign):
+        super().__init__(line, col)
+        self.modifiers = modifiers
+        self.name      = name
+        self.type_     = type_
+        self.assign    = assign
+
+class Assing_Node(Node):
+    def __init__(self, line, col, value):
+        super().__init__(line, col)
+        self.value = value
+
+class Reassignment_Node(Node):
+    def __init__(self, line, col, name, assign):
+        super().__init__(line, col)
+        self.name   = name
+        self.assign = assign
+
+class Integer_Node(Node):
+    def __init__(self, line, col, i):
+        super().__init__(line, col)
+        self.i = i
+
 class Start_Node(Node):
     def __init__(self, line, col, statements):
         super().__init__(line, col)
@@ -66,6 +90,28 @@ class Ast_Builder(lark.Transformer):
             str(item.value)
         )
 
+    def integer(self, items):
+        return Integer_Node(
+            items[0].line,
+            items[0].column,
+            int(items[0].value)
+        )
+
+    def assign(self, items):
+        return Assing_Node(
+            items[0].line,
+            items[0].col,
+            items[0]
+        )
+
+    def reassignment(self, items):
+        return Reassignment_Node(
+            items[0].line,
+            items[0].col,
+            items[0],
+            items[1]
+        )
+
     def plain_type(self, items):
         return Plain_Type_Node(
             items[0].line,
@@ -73,11 +119,36 @@ class Ast_Builder(lark.Transformer):
             items[0]
         )
 
+    def variable(self, items):
+        modifiers = []
+        for item in items:
+            if isinstance(item, Modifier_Node):
+                modifiers.append(item)
+        name = items[len(modifiers):][0]
+        type_ = items[len(modifiers)+1:][0]
+        assign = items[len(modifiers)+2:][0] if len(items[len(modifiers)+2:]) > 0 else None
+        return Variable_Node(
+            items[0].line,
+            items[0].col,
+            modifiers,
+            name,
+            type_,
+            assign
+        )
+
     def code_block(self, items):
         if len(items) > 0:
-            return Code_Block(items[0].line, items[0].col, items)
+            return Code_Block(
+                items[0].line,
+                items[0].col,
+                items
+            )
         else:
-            return Code_Block(-1, -1, items)
+            return Code_Block(
+                -1,
+                -1,
+                items
+            )
 
     def proc_params_pair(self, items):
         name = items[0]
@@ -131,7 +202,7 @@ def is_void_type(t):
 
 class Stack_Frame:
     def __init__(self):
-        self.allocas = {}
+        self.values = {}
 
 class Proc:
     def __init__(self, compiler, node, llvm_func, params):
@@ -139,27 +210,28 @@ class Proc:
         self.node         = node
         self.llvm_func    = llvm_func
         self.params       = params
-        self.stack_frames = []
         self.returned     = False
-        self.builder      = None
 
     def prologue(self):
         prologue = self.llvm_func.append_basic_block("prologue")
-        self.builder = ir.IRBuilder(prologue)
-
-        self.stack_frames.append(Stack_Frame())
+        self.compiler.builder = ir.IRBuilder(prologue)
 
         for i, p in enumerate(self.params):
-            self.stack_frames[-1].allocas[p[0]] = self.builder.alloca(p[1], name=p[0])
-            self.builder.store(self.llvm_func.args[i], self.stack_frames[-1].allocas[p[0]])
+            self.compiler.stack_frames[-1].values[p[0]] = self.compiler.builder.alloca(p[1], name=p[0])
+            self.compiler.builder.store(self.llvm_func.args[i], self.compiler.stack_frames[-1].values[p[0]])
 
     def epilogue(self):
-        if is_void_type(self.llvm_func.function_type.return_type) and not self.returned:
-            self.builder.position_at_end(self.builder.block)
-            self.builder.ret_void()
-        else:
-            self.compiler.error(self.compiler.source_path + ":" + str(self.node.line) + ":" + str(self.node.col)
-                        + ": return statement is missing for " + self.llvm_func.name + ".")
+        if not self.returned:
+            if is_void_type(self.llvm_func.function_type.return_type):
+                self.compiler.builder.position_at_end(self.compiler.builder.block)
+                self.compiler.builder.ret_void()
+            else:
+                self.compiler.error(self.compiler.source_path + ":" + str(self.node.line) + ":" + str(self.node.col)
+                            + ": return statement is missing for " + self.llvm_func.name + ".")
+
+class Variable:
+    def __init__(self, llvm_var):
+        self.llvm_var = llvm_var
 
 class Compiler:
     def __init__(self, source_path, ast):
@@ -171,9 +243,13 @@ class Compiler:
             "Proc_Node":             self.visit_proc_node,
             "Plain_Type_Node":       self.visit_plain_type_node,
             "Proc_Params_Pair_Node": self.visit_proc_params_pair_node,
+            "Variable_Node":         self.visit_variable_node,
+            "Integer_Node":          self.visit_integer_node,
+            "Reassignment_Node":     self.visit_reassignment_node,
         }
 
-        self.procs_map = {}
+        self.stack_frames = []
+        self.stack_frames.append(Stack_Frame())
 
         self.types_map = {
             "void": ir.VoidType(),
@@ -182,22 +258,88 @@ class Compiler:
 
         pre, ext = os.path.splitext(source_path)
         self.module = ir.Module(pre + ".ll")
+        self.builder = None
+        self.current_variable_type = None
 
     def error(self, msg):
         print(msg)
         self.ok = False
 
-    def proc_declared(self, node):
+    def declared(self, node):
         for m in node.modifiers:
             if m.modifier == Modifier_Types.DECLARE:
                 return True
         return False
     
-    def proc_defined(self, node):
+    def defined(self, node):
         for m in node.modifiers:
             if m.modifier == Modifier_Types.DEFINE:
                 return True
         return False
+
+    def name_available(self, name):
+        for sf in self.stack_frames:
+            if name in sf.values:
+                return False
+        return True
+
+    def find_value(self, name):
+        for sf in self.stack_frames:
+            if name in sf.values:
+                return sf.values[name]
+        return None
+
+    def visit_reassignment_node(self, node):
+        name = node.name.text
+        value = self.visit(node.assign.value)
+
+        v = self.find_value(name)
+        if v is None:
+            self.error(self.source_path + ":" + str(node.line) + ":" + str(node.col)
+                    + ": Item " + name + " doesn't exist.")
+
+        self.builder.store(value, v.llvm_var)
+        return None
+
+    def visit_integer_node(self, node):
+        if not isinstance(self.current_variable_type, ir.IntType):
+            self.error(self.source_path + ":" + str(node.line) + ":" + str(node.col)
+                    + ": Cannot assign non-integer value to integer-type variable.")
+        return ir.Constant(self.current_variable_type, node.i)
+
+    def visit_variable_node(self, node):
+        name = node.name.text
+        type_ = self.visit(node.type_)
+
+        if not self.name_available(name):
+            self.error(self.source_path + ":" + str(node.line) + ":" + str(node.col)
+                    + ": Item " + name + " is already in scope")
+
+        if self.declared(node) and node.assign is not None:
+            self.error(self.source_path + ":" + str(node.line) + ":" + str(node.col)
+                    + ": Use define instead of declare if you'd like to assign a value.")
+
+        if self.defined(node) and node.assign is None:
+            self.error(self.source_path + ":" + str(node.line) + ":" + str(node.col)
+                    + ": A defined variable must have a value assigned.")
+
+        if node.assign is not None and len(self.stack_frames) == 1:
+            self.error(self.source_path + ":" + str(node.line) + ":" + str(node.col)
+                    + ": Global variables cannot be initialized in-place.")
+
+
+        self.current_variable_type = type_
+
+        if len(self.stack_frames) == 1:
+            self.stack_frames[-1].values[name] = Variable(ir.GlobalVariable(self.module, type_, name))
+        else:
+            self.stack_frames[-1].values[name] = Variable(self.builder.alloca(type_, name=name))
+
+        if node.assign is not None:
+            val = self.visit(node.assign.value)
+            self.builder.store(val, self.stack_frames[-1].values[name].llvm_var)
+
+        return None
 
     def visit_start_node(self, node):
         for statement in self.ast.statements:
@@ -218,11 +360,11 @@ class Compiler:
         proc_params = [self.visit(p) for p in node.proc_params]
         name = node.name.text
         
-        if name in self.procs_map:
+        if not self.name_available(name):
             self.error(self.source_path + ":" + str(node.line) + ":" + str(node.col)
-                    + ": Procedure " + name + " is already in scope")
+                    + ": Item " + name + " is already in scope")
 
-        if self.proc_declared(node) and self.proc_defined(node):
+        if self.declared(node) and self.defined(node):
             self.error(self.source_path + ":" + str(node.line) + ":" + str(node.col)
                   + ": Procedure " + name + " cannot be defined and declared at the same time.")
         
@@ -231,20 +373,22 @@ class Compiler:
             ir.FunctionType(return_type, [t[1] for t in proc_params]),
             name
         )
-        self.procs_map[name] = Proc(self, node, llvm_func, proc_params)
+        self.stack_frames[-1].values[name] = Proc(self, node, llvm_func, proc_params)
         
-        if self.proc_defined(node) and node.code_block is None:
+        if self.defined(node) and node.code_block is None:
             self.error(self.source_path + ":" + str(node.line) + ":" + str(node.col)
                   + ": Procedure " + name + " is defined, but it's code block is missing.") 
 
-        if self.proc_defined(node):
-            self.procs_map[name].prologue()
+        if self.defined(node):
+            self.stack_frames.append(Stack_Frame())
+            self.find_value(name).prologue()
 
             if node.code_block is not None:
                 for statement in node.code_block.statements:
                     self.visit(statement)
 
-            self.procs_map[name].epilogue()
+            self.find_value(name).epilogue()
+            self.stack_frames.pop()
 
         return None
 

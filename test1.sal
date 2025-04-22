@@ -1,5 +1,12 @@
 
+declare var b int
+
 define proc _start() void
 {
+    define var a int = 4
+
+    a = 6
+
+    b = 10
 }
 

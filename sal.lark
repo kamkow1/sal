@@ -1,5 +1,6 @@
 %import common.CNAME -> IDENTIFIER
 %import common.WS
+%import common.NUMBER
 
 DECLARE: "declare"
 DEFINE: "define"
@@ -9,7 +10,17 @@ start: statement*
 
 code_block: "{" statement* "}"
 
-?statement: proc
+?statement: proc | variable | reassignment
+
+variable: modifier* "var" IDENTIFIER type assign?
+
+reassignment: IDENTIFIER assign
+
+assign: "=" expression
+
+?expression: integer
+
+integer: NUMBER
 
 proc: modifier* "proc" IDENTIFIER proc_params type code_block?
 

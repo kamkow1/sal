@@ -5,7 +5,6 @@ declare var b int
 
 template(T) define proc generic_proc(x *$T) void
 {
-    
 }
 
 call make_template(generic_proc, type int)
@@ -29,7 +28,7 @@ define proc Main() void
     define var p *int8 = call cast(type *int8, &"Hello world\n")
     call printf(p)
 
-    call printf(call cast(type *int8, &"Hello from SAL\n"))
+    call printf(call cast(type *int8, &"Hello from SAL, %d\n"), *c)
 
     call(type int) generic_proc(c)
 }

@@ -136,6 +136,11 @@ class Type_List_Node(Node):
         super().__init__(line, col)
         self.types = types
 
+class Dereference_Node(Node):
+    def __init__(self, line, col, dereferee):
+        super().__init__(line, col)
+        self.dereferee = dereferee
+
 class Start_Node(Node):
     def __init__(self, line, col, statements):
         super().__init__(line, col)
@@ -156,6 +161,13 @@ class Ast_Builder(lark.Transformer):
             item.line,
             item.column,
             text
+        )
+
+    def dereference(self, items):
+        return Dereference_Node(
+            items[0].line,
+            items[0].col,
+            items[0]
         )
 
     def type_list(self, items):
@@ -402,6 +414,7 @@ class Compiler:
             "Proc_Type_Node":        self.visit_proc_type_node,
             "String_Node":           self.visit_string_node,
             "Proc_Call_Node":        self.visit_proc_call_node,
+            "Dereference_Node":      self.visit_dereference_node,
         }
 
         self.stack_frames = []
@@ -538,6 +551,18 @@ class Compiler:
             self.error(self.source_path + ":" + str(node.line) + ":" + str(node.col)
                     + ": unsupported cast type.")
         return None
+
+    def visit_dereference_node(self, node):
+        if len(self.stack_frames) == 1:
+            self.error(self.source_path + ":" + str(node.line) + ":" + str(node.col)
+                    + ": dereference expression can only be used within a context of a procedure.")
+        dereferee = self.visit(node.dereferee)
+
+        if not dereferee.type.is_pointer:
+            self.error(self.source_path + ":" + str(node.line) + ":" + str(node.col)
+                    + ": cannot dereference a non-pointer type.")
+
+        return self.builder.load(dereferee)
 
     def visit_proc_call_node(self, node):
         callee = None

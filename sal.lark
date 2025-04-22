@@ -27,7 +27,9 @@ reassignment: IDENTIFIER assign
 
 assign: "=" expression
 
-?expression: integer | addr_of | IDENTIFIER | ESCAPED_STRING | proc_call | ("type" type)
+?expression: integer | addr_of | IDENTIFIER | ESCAPED_STRING | proc_call | ("type" type) | dereference
+
+dereference: "*" expression
 
 addr_of: "&" expression
 

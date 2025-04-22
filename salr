@@ -7,6 +7,7 @@ import abc
 import pprint
 import enum
 import ctypes
+import copy
 from llvmlite import ir
 from llvmlite import binding
 
@@ -26,18 +27,22 @@ class Modifier_Node(Node):
         self.modifier = Modifier_Types[name.upper()]
 
 class Proc_Node(Node):
-    def __init__(self, line, col, modifiers, name, proc_params, return_type, code_block):
+    def __init__(self, line, col, modifiers, name, proc_params, return_type, code_block, template):
         super().__init__(line, col)
         self.modifiers   = modifiers
         self.name        = name
         self.proc_params = proc_params
         self.return_type = return_type
         self.code_block  = code_block
+        self.template    = template
 
 class Plain_Type_Node(Node):
     def __init__(self, line, col, name):
         super().__init__(line, col)
         self.name = name
+
+    def __str__(self):
+        return self.name.text
 
 class Proc_Params_Pair_Node(Node):
     def __init__(self, line, col, name, type_, is_va_args):
@@ -85,6 +90,9 @@ class Ptr_Type_Node(Node):
         super().__init__(line, col)
         self.pointee = pointee
 
+    def __str__(self):
+        return "*" + str(self.pointee)
+
 class Addr_Of_Node(Node):
     def __init__(self, line, col, pointee):
         super().__init__(line, col)
@@ -96,16 +104,37 @@ class Proc_Type_Node(Node):
         self.proc_params = proc_params
         self.return_type = return_type
 
+    def __str__(self):
+        s = "proc("
+        for i, p in enumerate(self.proc_params):
+            if i != 0:
+                s += ","
+            s += str(p.type_)
+        s += ")"
+        s += str(self.return_type)
+        return s
+
 class String_Node(Node):
     def __init__(self, line, col, text):
         super().__init__(line, col)
         self.text = text
 
 class Proc_Call_Node(Node):
-    def __init__(self, line, col, callee, args):
+    def __init__(self, line, col, callee, args, generic_args):
         super().__init__(line, col)
-        self.callee = callee
-        self.args   = args
+        self.callee       = callee
+        self.args         = args
+        self.generic_args = generic_args
+
+class Template_Node(Node):
+    def __init__(self, line, col, templates):
+        super().__init__(line, col)
+        self.templates = templates
+
+class Type_List_Node(Node):
+    def __init__(self, line, col, types):
+        super().__init__(line, col)
+        self.types = types
 
 class Start_Node(Node):
     def __init__(self, line, col, statements):
@@ -129,13 +158,30 @@ class Ast_Builder(lark.Transformer):
             text
         )
 
-    def proc_call(self, items):
-        return Proc_Call_Node(
+    def type_list(self, items):
+        return Type_List_Node(
             items[0].line,
             items[0].col,
-            items[0],
-            items[1:]
+            items
         )
+
+    def proc_call(self, items):
+        if isinstance(items[0], Type_List_Node):
+            return Proc_Call_Node(
+                items[0].line,
+                items[0].col,
+                items[1],
+                items[2:],
+                items[0]
+            )
+        else:
+            return Proc_Call_Node(
+                items[0].line,
+                items[0].col,
+                items[0],
+                items[1:],
+                None
+            )
 
     def proc_type(self, items):
         return Proc_Type_Node(
@@ -248,16 +294,32 @@ class Ast_Builder(lark.Transformer):
             items[0].column,
             items[0]
         )
+    
+    def template(self, items):
+        return Template_Node(
+            items[0].line,
+            items[0].col,
+            items
+        )
 
     def proc(self, items):
+        offset = 0
+
+        template = None
+        if isinstance(items[0], Template_Node):
+            template = items[0]
+            offset += 1
+
         modifiers = []
         for item in items:
             if isinstance(item, Modifier_Node):
                 modifiers.append(item)
-        name = items[len(modifiers):][0]
-        proc_params = items[len(modifiers)+1:][0]
-        return_type = items[len(modifiers)+2:][0]
-        code_block = items[len(modifiers)+3:][0] if len(items[len(modifiers)+3:]) > 0 else None
+        offset += len(modifiers)
+
+        name = items[offset:][0]
+        proc_params = items[offset+1:][0]
+        return_type = items[offset+2:][0]
+        code_block = items[offset+3:][0] if len(items[offset+3:]) > 0 else None
 
         return Proc_Node(
             items[0].line,
@@ -266,7 +328,8 @@ class Ast_Builder(lark.Transformer):
             name,
             proc_params,
             return_type,
-            code_block
+            code_block,
+            template,
         )
 
     def start(self, items):
@@ -282,6 +345,7 @@ def is_void_type(t):
 class Stack_Frame:
     def __init__(self):
         self.values = {}
+        self.generics = {}
 
 class Proc:
     def __init__(self, compiler, node, llvm_func, params):
@@ -360,6 +424,7 @@ class Compiler:
 
         self.builtins = {
             "cast": self.cast,
+            "make_template": self.make_template,
         }
 
     def error(self, msg):
@@ -389,11 +454,84 @@ class Compiler:
             if name in sf.values:
                 return sf.values[name]
         return None
+    
+    def find_generic(self, name):
+        for sf in self.stack_frames:
+            if name in sf.generics:
+                return sf.generics[name]
+        return None
 
-    def cast(self, node, target, value):
+    def populate_template_type(self, type_, templates, types):
+        if isinstance(type_, Plain_Type_Node):
+            name = type_.name.text
+            if name[0] == "$":
+                real_name = name[1:]
+                for i, template in enumerate(templates):
+                    if real_name == template:
+                        return (types[i], True)
+        elif isinstance(type_, Ptr_Type_Node):
+            type_.pointee, changed = self.populate_template_type(type_.pointee, templates, types)
+            return (type_, changed)
+        elif isinstance(type_, Proc_Type_Node):
+            t = type_
+            t.return_type, changed = self.populate_template_type(t.return_type, templates, types)
+            for p in t.proc_params:
+                p.type_, changed = self.populate_template_type(p.type_, templates, types)
+            return (t, changed)
+        return (type_, False)
+
+    def make_template(self, node, args):
+        if len(args) < 2:
+            self.error(self.source_path + ":" + str(node.line) + ":" + str(node.col)
+                    + ": make_template(`template item`, type `type`, ...) requires 2 or more arguments.")
+
+
+        if not isinstance(args[0], Identifier_Node):
+            self.error(self.source_path + ":" + str(node.line) + ":" + str(node.col)
+                    + ": make_template first argument must be an identifier.")
+
+        types = args[1:]
+        name = args[0].text
+        g = copy.deepcopy(self.find_generic(name))
+        if g is None:
+            self.error(self.source_path + ":" + str(node.line) + ":" + str(node.col)
+                    + ": Item " + name + " doesn't exist.")
+
+        templates = [t.text for t in g.template.templates]
+
+        if len(templates) != len(types):
+            self.error(self.source_path + ":" + str(node.line) + ":" + str(node.col)
+                    + ": " + str(len(templates)) + " parameters for template, but " + str(len(types)) + " were given")
+
+        populated_templates = []
+
+        g.return_type, changed = self.populate_template_type(g.return_type, templates, types)
+        if changed:
+            populated_templates.append(g.return_type)
+
+        for param in g.proc_params:
+            param.type_, changed = self.populate_template_type(param.type_, templates, types)
+            if changed:
+                populated_templates.append(param.type_)
+
+        for pt in populated_templates:
+            g.name.text += "@@" + str(pt)
+        g.template = None
+
+        self.visit_proc_node(g)
+
+    def cast(self, node, args):
         if len(self.stack_frames) == 1:
             self.error(self.source_path + ":" + str(node.line) + ":" + str(node.col)
                     + ": cast() can only be used within a context of a procedure.")
+
+        if len(args) != 2:
+            self.error(self.source_path + ":" + str(node.line) + ":" + str(node.col)
+                       + ": cast(type `target`, `value`) requires 2 arguments.")
+
+        target = self.visit(args[0])
+        value = self.visit(args[1])
+
         if isinstance(value.type, ir.PointerType) and isinstance(target, ir.PointerType):
             return self.builder.bitcast(value, target)
         else:
@@ -402,23 +540,46 @@ class Compiler:
         return None
 
     def visit_proc_call_node(self, node):
-        if len(self.stack_frames) == 1:
-            self.error(self.source_path + ":" + str(node.line) + ":" + str(node.col)
-                    + ": calls can only be used within a context of a procedure.")
         callee = None
         if isinstance(node.callee, Identifier_Node):
             name = node.callee.text
             if name in self.builtins:
-                return self.builtins[name](
-                    node,
-                    self.visit(node.args[0]),
-                    self.visit(node.args[1])
-                )
+                return self.builtins[name](node, node.args)
             else:
+                if len(self.stack_frames) == 1:
+                    self.error(self.source_path + ":" + str(node.line) + ":" + str(node.col)
+                            + ": calls can only be used within a context of a procedure.")
+
+                g = copy.deepcopy(self.find_generic(name))
+                if node.generic_args is not None and g is not None:
+                    templates = [t.text for t in g.template.templates]
+
+                    if len(templates) != len(node.generic_args.types):
+                        self.error(self.source_path + ":" + str(node.line) + ":" + str(node.col)
+                                + ": " + str(len(templates)) + " parameters for template, but " + str(len(types)) + " were given")
+                    populated_templates = []
+
+                    g.return_type, changed = self.populate_template_type(g.return_type, templates, node.generic_args.types)
+                    if changed:
+                        populated_templates.append(g.return_type)
+
+                    for param in g.proc_params:
+                        param.type_, changed = self.populate_template_type(param.type_, templates, node.generic_args.types)
+                        if changed:
+                            populated_templates.append(param.type_)
+
+                    for pt in populated_templates:
+                        g.name.text += "@@" + str(pt)
+                    name = g.name.text
+
                 v = self.find_value(name)
+
                 if v is not None and isinstance(v, Proc):
                     args = [self.visit(arg) for arg in node.args]
                     return self.builder.call(v.llvm_func, args)
+                else:
+                    self.error(self.source_path + ":" + str(node.line) + ":" + str(node.col)
+                            + ": Item " + name + " doesn't exist.")
         return None
 
     def visit_string_node(self, node):
@@ -555,43 +716,46 @@ class Compiler:
         return self.types_map[name]
 
     def visit_proc_node(self, node):
-        return_type = self.visit(node.return_type)
-        proc_params = [self.visit(p) for p in node.proc_params]
-        name = node.name.text
-        
-        if not self.name_available(name):
-            self.error(self.source_path + ":" + str(node.line) + ":" + str(node.col)
-                    + ": Item " + name + " is already in scope")
+        if node.template is not None:
+            self.stack_frames[-1].generics[node.name.text] = node
+        else:
+            return_type = self.visit(node.return_type)
+            proc_params = [self.visit(p) for p in node.proc_params]
+            name = node.name.text
+            
+            if not self.name_available(name):
+                self.error(self.source_path + ":" + str(node.line) + ":" + str(node.col)
+                        + ": Item " + name + " is already in scope")
 
-        if self.declared(node) and self.defined(node):
-            self.error(self.source_path + ":" + str(node.line) + ":" + str(node.col)
-                  + ": Procedure " + name + " cannot be defined and declared at the same time.")
-        
-        va_args = False
-        if len(proc_params) > 0:
-            va_args = proc_params[-1][2]
-        param_types = [t[1] for t in proc_params] if not va_args else [t[1] for t in proc_params[:-1]]
-        llvm_func = ir.Function(
-            self.module,
-            ir.FunctionType(return_type, param_types, va_args),
-            name
-        )
-        self.stack_frames[-1].values[name] = Proc(self, node, llvm_func, proc_params)
-        
-        if self.defined(node) and node.code_block is None:
-            self.error(self.source_path + ":" + str(node.line) + ":" + str(node.col)
-                  + ": Procedure " + name + " is defined, but it's code block is missing.") 
+            if self.declared(node) and self.defined(node):
+                self.error(self.source_path + ":" + str(node.line) + ":" + str(node.col)
+                      + ": Procedure " + name + " cannot be defined and declared at the same time.")
+            
+            va_args = False
+            if len(proc_params) > 0:
+                va_args = proc_params[-1][2]
+            param_types = [t[1] for t in proc_params] if not va_args else [t[1] for t in proc_params[:-1]]
+            llvm_func = ir.Function(
+                self.module,
+                ir.FunctionType(return_type, param_types, va_args),
+                name
+            )
+            self.stack_frames[-1].values[name] = Proc(self, node, llvm_func, proc_params)
+            
+            if self.defined(node) and node.code_block is None:
+                self.error(self.source_path + ":" + str(node.line) + ":" + str(node.col)
+                      + ": Procedure " + name + " is defined, but it's code block is missing.") 
 
-        if self.defined(node):
-            self.stack_frames.append(Stack_Frame())
-            self.find_value(name).prologue()
+            if self.defined(node):
+                self.stack_frames.append(Stack_Frame())
+                self.find_value(name).prologue()
 
-            if node.code_block is not None:
-                for statement in node.code_block.statements:
-                    self.visit(statement)
+                if node.code_block is not None:
+                    for statement in node.code_block.statements:
+                        self.visit(statement)
 
-            self.find_value(name).epilogue()
-            self.stack_frames.pop()
+                self.find_value(name).epilogue()
+                self.stack_frames.pop()
 
         return None
 

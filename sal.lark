@@ -1,4 +1,4 @@
-%import common.CNAME -> IDENTIFIER
+%import common.CNAME
 %import common.WS
 %import common.NUMBER
 %import common.CPP_COMMENT
@@ -9,13 +9,17 @@ DECLARE: "declare"
 DEFINE: "define"
 VA_ARGS: "..."
 
+IDENTIFIER: "$"? CNAME
+
 start: statement*
 
 code_block: "{" statement* "}"
 
 ?statement: proc | variable | reassignment | proc_call
 
-proc_call: "call" expression "(" (expression ("," expression)*)? ")"
+proc_call: "call" type_list? expression "(" (expression ("," expression)*)? ")"
+
+type_list: "(" (expression ("," expression)*)? ")"
 
 variable: modifier* "var" IDENTIFIER type assign?
 
@@ -29,7 +33,9 @@ addr_of: "&" expression
 
 integer: NUMBER
 
-proc: modifier* "proc" IDENTIFIER proc_params type code_block?
+proc: template? modifier* "proc" IDENTIFIER proc_params type code_block?
+
+template: "template" "(" IDENTIFIER ("," IDENTIFIER)* ")"
 
 modifier: DECLARE | DEFINE
 

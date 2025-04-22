@@ -77,6 +77,16 @@ class Integer_Node(Node):
         super().__init__(line, col)
         self.i = i
 
+class Ptr_Type_Node(Node):
+    def __init__(self, line, col, pointee):
+        super().__init__(line, col)
+        self.pointee = pointee
+
+class Addr_Of_Node(Node):
+    def __init__(self, line, col, pointee):
+        super().__init__(line, col)
+        self.pointee = pointee
+
 class Start_Node(Node):
     def __init__(self, line, col, statements):
         super().__init__(line, col)
@@ -88,6 +98,13 @@ class Ast_Builder(lark.Transformer):
             item.line,
             item.column,
             str(item.value)
+        )
+
+    def addr_of(self, items):
+        return Addr_Of_Node(
+            items[0].line,
+            items[0].col,
+            items[0]
         )
 
     def integer(self, items):
@@ -114,6 +131,13 @@ class Ast_Builder(lark.Transformer):
 
     def plain_type(self, items):
         return Plain_Type_Node(
+            items[0].line,
+            items[0].col,
+            items[0]
+        )
+
+    def ptr_type(self, items):
+        return Ptr_Type_Node(
             items[0].line,
             items[0].col,
             items[0]
@@ -246,6 +270,9 @@ class Compiler:
             "Variable_Node":         self.visit_variable_node,
             "Integer_Node":          self.visit_integer_node,
             "Reassignment_Node":     self.visit_reassignment_node,
+            "Ptr_Type_Node":         self.visit_ptr_type_node,
+            "Addr_Of_Node":          self.visit_addr_of_node,
+            "Identifier_Node":       self.visit_identifier_node,
         }
 
         self.stack_frames = []
@@ -260,6 +287,7 @@ class Compiler:
         self.module = ir.Module(pre + ".ll")
         self.builder = None
         self.current_variable_type = None
+        self.load_current_value = True
 
     def error(self, msg):
         print(msg)
@@ -289,16 +317,54 @@ class Compiler:
                 return sf.values[name]
         return None
 
-    def visit_reassignment_node(self, node):
-        name = node.name.text
-        value = self.visit(node.assign.value)
-
+    def visit_identifier_node(self, node):
+        name = node.text
         v = self.find_value(name)
         if v is None:
             self.error(self.source_path + ":" + str(node.line) + ":" + str(node.col)
                     + ": Item " + name + " doesn't exist.")
+        if self.load_current_value:
+            if isinstance(v, Variable):
+                return self.builder.load(v.llvm_var)
+            elif isinstance(v, Proc):
+                return self.builder.load(v.llvm_func)
+        else:
+            if isinstance(v, Variable):
+                return v.llvm_var
+            elif isinstance(v, Proc):
+                return v.llvm_func
 
-        self.builder.store(value, v.llvm_var)
+    def visit_addr_of_node(self, node):
+        self.load_current_value = False
+        pointee = self.visit(node.pointee)
+        self.load_current_value = True
+        return pointee
+
+    def visit_ptr_type_node(self, node):
+        t = self.visit(node.pointee)
+        return t.as_pointer()
+
+    def visit_reassignment_node(self, node):
+        name = node.name.text
+        v = self.find_value(name)
+        
+        if v is None:
+            self.error(self.source_path + ":" + str(node.line) + ":" + str(node.col)
+                    + ": Item " + name + " doesn't exist.")
+
+        if isinstance(v, Variable):
+            self.current_variable_type = v.llvm_var.type.pointee
+        elif isinstance(v, Proc):
+            self.current_variable_type = v.llvm_func.type
+        value = self.visit(node.assign.value)
+        
+        self.current_variable_type = None
+
+        if isinstance(v, Variable):
+            self.builder.store(value, v.llvm_var)
+        elif isinstance(v, Proc):
+            self.builder.store(value, v.llvm_func)
+
         return None
 
     def visit_integer_node(self, node):
@@ -328,16 +394,16 @@ class Compiler:
                     + ": Global variables cannot be initialized in-place.")
 
 
-        self.current_variable_type = type_
-
         if len(self.stack_frames) == 1:
             self.stack_frames[-1].values[name] = Variable(ir.GlobalVariable(self.module, type_, name))
         else:
             self.stack_frames[-1].values[name] = Variable(self.builder.alloca(type_, name=name))
 
         if node.assign is not None:
+            self.current_variable_type = type_
             val = self.visit(node.assign.value)
             self.builder.store(val, self.stack_frames[-1].values[name].llvm_var)
+            self.current_variable_type = None
 
         return None
 

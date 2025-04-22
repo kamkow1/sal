@@ -8,5 +8,11 @@ define proc _start() void
     a = 6
 
     b = 10
+
+    declare var c *int
+
+    c = &a
+
+    // declare var d *proc() void
 }
 

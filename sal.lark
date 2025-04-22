@@ -18,7 +18,9 @@ reassignment: IDENTIFIER assign
 
 assign: "=" expression
 
-?expression: integer
+?expression: integer | addr_of | IDENTIFIER
+
+addr_of: "&" expression
 
 integer: NUMBER
 
@@ -30,9 +32,13 @@ proc_params_pair: IDENTIFIER type
 
 proc_params: "(" (proc_params_pair ("," proc_params_pair)*)? ")"
 
-?type: plain_type
+?type: plain_type | ptr_type
+
+ptr_type: "*" type
 
 plain_type: IDENTIFIER
+
+// proc_type: "proc" proc_params type
 
 %ignore WS
 %ignore COMMENT

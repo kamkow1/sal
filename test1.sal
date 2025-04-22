@@ -1,4 +1,6 @@
 
+declare proc printf(format *int8, ...) int
+
 declare var b int
 
 define proc Main() void
@@ -16,5 +18,10 @@ define proc Main() void
     declare var d *proc() void
 
     d = &Main
+
+    define var p *int8 = call cast(type *int8, &"Hello world\n")
+    call printf(p)
+
+    call printf(call cast(type *int8, &"Hello from SAL\n"))
 }
 

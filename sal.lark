@@ -1,16 +1,21 @@
 %import common.CNAME -> IDENTIFIER
 %import common.WS
 %import common.NUMBER
+%import common.CPP_COMMENT
+%import common.C_COMMENT
+%import common.ESCAPED_STRING
 
 DECLARE: "declare"
 DEFINE: "define"
-COMMENT: /\/\/[^\n]*/
+VA_ARGS: "..."
 
 start: statement*
 
 code_block: "{" statement* "}"
 
-?statement: proc | variable | reassignment
+?statement: proc | variable | reassignment | proc_call
+
+proc_call: "call" expression "(" (expression ("," expression)*)? ")"
 
 variable: modifier* "var" IDENTIFIER type assign?
 
@@ -18,7 +23,7 @@ reassignment: IDENTIFIER assign
 
 assign: "=" expression
 
-?expression: integer | addr_of | IDENTIFIER
+?expression: integer | addr_of | IDENTIFIER | ESCAPED_STRING | proc_call | ("type" type)
 
 addr_of: "&" expression
 
@@ -28,7 +33,7 @@ proc: modifier* "proc" IDENTIFIER proc_params type code_block?
 
 modifier: DECLARE | DEFINE
 
-proc_params_pair: IDENTIFIER type
+proc_params_pair: (IDENTIFIER type) | VA_ARGS
 
 proc_params: "(" (proc_params_pair ("," proc_params_pair)*)? ")"
 
@@ -41,5 +46,6 @@ plain_type: IDENTIFIER
 proc_type: "proc" proc_params type
 
 %ignore WS
-%ignore COMMENT
+%ignore CPP_COMMENT
+%ignore C_COMMENT
 

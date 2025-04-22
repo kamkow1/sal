@@ -13,6 +13,8 @@ define proc _start() void
 
     c = &a
 
-    // declare var d *proc() void
+    declare var d *proc() void
+
+    d = &_start
 }
 

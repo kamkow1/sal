@@ -394,7 +394,7 @@ class Compiler:
         if len(self.stack_frames) == 1:
             self.error(self.source_path + ":" + str(node.line) + ":" + str(node.col)
                     + ": cast() can only be used within a context of a procedure.")
-        if isinstance(value.type, ir.PointerType):
+        if isinstance(value.type, ir.PointerType) and isinstance(target, ir.PointerType):
             return self.builder.bitcast(value, target)
         else:
             self.error(self.source_path + ":" + str(node.line) + ":" + str(node.col)

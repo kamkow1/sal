@@ -1,13 +1,13 @@
 
 declare var b int
 
-define proc _start() void
+define proc Main() void
 {
     define var a int = 4
 
     a = 6
 
-    b = 10
+    // b = 10 // Will segfault, because b is not linked yet
 
     declare var c *int
 
@@ -15,6 +15,6 @@ define proc _start() void
 
     declare var d *proc() void
 
-    d = &_start
+    d = &Main
 }
 

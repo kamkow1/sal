@@ -6,7 +6,9 @@ import os
 import abc
 import pprint
 import enum
+import ctypes
 from llvmlite import ir
+from llvmlite import binding
 
 class Node(abc.ABC):
     def __init__(self, line, col):
@@ -299,7 +301,9 @@ class Compiler:
         }
 
         pre, ext = os.path.splitext(source_path)
-        self.module = ir.Module(pre + ".ll")
+        self.out = pre + ".ll"
+        self.module = ir.Module(self.out)
+        self.module.triple = binding.get_default_triple()
         self.builder = None
         self.current_variable_type = None
         self.load_current_value = True
@@ -495,7 +499,21 @@ def process_source(source_path, source):
     c = Compiler(source_path, transformed)
     c.compile()
     if c.ok:
-        print(c.module)
+        binding.initialize()
+        binding.initialize_native_target()
+        binding.initialize_native_asmprinter()
+
+        parsed = binding.parse_assembly(str(c.module))
+        parsed.verify()
+
+        target = binding.Target.from_default_triple()
+        machine = target.create_target_machine()
+        with binding.create_mcjit_compiler(parsed, machine) as ee:
+            ee.finalize_object()
+            Main_ptr = ee.get_function_address("Main")
+            Main = ctypes.CFUNCTYPE(None)(Main_ptr)
+
+            Main()
 
 class Command:
     def __init__(self, fn, desc):

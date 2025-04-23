@@ -511,6 +511,9 @@ class Compiler:
             "int":   ir.IntType(32),
             "int32": ir.IntType(32),
             "int8":  ir.IntType(8),
+            "int64": ir.IntType(64),
+            "int16": ir.IntType(16),
+            "bool": ir.IntType(1)
         }
 
         pre, ext = os.path.splitext(source_path)

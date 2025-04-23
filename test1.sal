@@ -5,6 +5,16 @@ declare var b int
 
 template(T) define proc generic_proc(x *$T) $T
 {
+    define var cond int = 10
+
+    if cond seq 1 {
+        return 33
+    } elif cond seq 2 {
+        return 22
+    } elif cond seq 3 {
+        return 44
+    }
+
     return *x
 }
 

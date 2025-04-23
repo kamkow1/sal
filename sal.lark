@@ -15,7 +15,13 @@ start: statement*
 
 code_block: "{" statement* "}"
 
-?statement: proc | variable | reassignment | proc_call | return_statement
+?statement: proc | variable | reassignment | proc_call | return_statement | if_statement
+
+if_statement: "if" expression code_block elif_block* else_block?
+
+elif_block: "elif" expression code_block
+
+else_block: "else" code_block
 
 return_statement: "return" expression
 
@@ -29,7 +35,16 @@ reassignment: expression assign
 
 assign: "=" expression
 
-?expression: integer | addr_of | IDENTIFIER | ESCAPED_STRING | proc_call | ("type" type) | dereference
+?expression: integer
+    | addr_of
+    | IDENTIFIER
+    | ESCAPED_STRING
+    | proc_call
+    | ("type" type)
+    | dereference
+    | sequals
+
+sequals: expression "seq" expression
 
 dereference: "*" expression
 

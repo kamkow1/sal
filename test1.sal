@@ -36,6 +36,8 @@ define proc Main() void
 
     call printf(call cast(type *int8, &"Hello from SAL, %d\n"), *c)
 
+    *c = 6969
+
     call printf(call cast(type *int8, &"generic_proc: %d\n"), call(type int) generic_proc(c))
     
 }

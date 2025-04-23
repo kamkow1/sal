@@ -25,7 +25,7 @@ type_list: "(" (expression ("," expression)*)? ")"
 
 variable: modifier* "var" IDENTIFIER type assign?
 
-reassignment: IDENTIFIER assign
+reassignment: expression assign
 
 assign: "=" expression
 

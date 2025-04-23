@@ -75,10 +75,10 @@ class Assing_Node(Node):
         self.value = value
 
 class Reassignment_Node(Node):
-    def __init__(self, line, col, name, assign):
+    def __init__(self, line, col, reassignee, assign):
         super().__init__(line, col)
-        self.name   = name
-        self.assign = assign
+        self.reassignee = reassignee
+        self.assign     = assign
 
 class Integer_Node(Node):
     def __init__(self, line, col, i):
@@ -681,26 +681,15 @@ class Compiler:
         return t.as_pointer()
 
     def visit_reassignment_node(self, node):
-        name = node.name.text
-        v = self.find_value(name)
-        
-        if v is None:
-            self.error(self.source_path + ":" + str(node.line) + ":" + str(node.col)
-                    + ": Item " + name + " doesn't exist.")
-
-        if isinstance(v, Variable):
-            self.current_variable_type = v.llvm_var.type.pointee
-        elif isinstance(v, Proc):
-            self.current_variable_type = v.llvm_func.type
+        self.load_current_value = False
+        ra = self.visit(node.reassignee)
+        self.load_current_value = True
+            
+        self.current_variable_type = ra.type.pointee
         value = self.visit(node.assign.value)
-        
         self.current_variable_type = None
 
-        if isinstance(v, Variable):
-            self.builder.store(value, v.llvm_var)
-        elif isinstance(v, Proc):
-            self.builder.store(value, v.llvm_func)
-
+        self.builder.store(value, ra)
         return None
 
     def visit_integer_node(self, node):

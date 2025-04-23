@@ -3,8 +3,14 @@ declare proc printf(format *int8, ...) int
 
 declare var b int
 
-template(T) define proc generic_proc(x *$T) void
+template(T) define proc generic_proc(x *$T) $T
 {
+    return *x
+}
+
+define proc regular_proc() int
+{
+    return 1
 }
 
 call make_template(generic_proc, type int)
@@ -30,6 +36,7 @@ define proc Main() void
 
     call printf(call cast(type *int8, &"Hello from SAL, %d\n"), *c)
 
-    call(type int) generic_proc(c)
+    call printf(call cast(type *int8, &"generic_proc: %d\n"), call(type int) generic_proc(c))
+    
 }
 

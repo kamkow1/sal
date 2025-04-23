@@ -141,6 +141,11 @@ class Dereference_Node(Node):
         super().__init__(line, col)
         self.dereferee = dereferee
 
+class Return_Statement_Node(Node):
+    def __init__(self, line, col, ret):
+        super().__init__(line, col)
+        self.ret = ret
+
 class Start_Node(Node):
     def __init__(self, line, col, statements):
         super().__init__(line, col)
@@ -161,6 +166,13 @@ class Ast_Builder(lark.Transformer):
             item.line,
             item.column,
             text
+        )
+
+    def return_statement(self, items):
+        return Return_Statement_Node(
+            items[0].line,
+            items[0].col,
+            items[0]
         )
 
     def dereference(self, items):
@@ -372,8 +384,8 @@ class Proc:
         self.compiler.builder = ir.IRBuilder(prologue)
 
         for i, p in enumerate(self.params):
-            self.compiler.stack_frames[-1].values[p[0]] = self.compiler.builder.alloca(p[1], name=p[0])
-            self.compiler.builder.store(self.llvm_func.args[i], self.compiler.stack_frames[-1].values[p[0]])
+            self.compiler.stack_frames[-1].values[p[0]] = Variable(self.compiler.builder.alloca(p[1], name=p[0]))
+            self.compiler.builder.store(self.llvm_func.args[i], self.compiler.stack_frames[-1].values[p[0]].llvm_var)
 
     def epilogue(self):
         if not self.returned:
@@ -415,6 +427,7 @@ class Compiler:
             "String_Node":           self.visit_string_node,
             "Proc_Call_Node":        self.visit_proc_call_node,
             "Dereference_Node":      self.visit_dereference_node,
+            "Return_Statement_Node": self.visit_return_statement_node,
         }
 
         self.stack_frames = []
@@ -563,6 +576,16 @@ class Compiler:
                     + ": cannot dereference a non-pointer type.")
 
         return self.builder.load(dereferee)
+
+    def visit_return_statement_node(self, node):
+        self.current_variable_type = self.builder.function.type.pointee.return_type
+        ret = self.visit(node.ret)
+        self.current_variable_type = None
+        self.builder.ret(ret)
+
+        p = self.find_value(self.builder.function.name)
+        p.returned = True
+        return None
 
     def visit_proc_call_node(self, node):
         callee = None

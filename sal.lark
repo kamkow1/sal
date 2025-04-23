@@ -15,7 +15,9 @@ start: statement*
 
 code_block: "{" statement* "}"
 
-?statement: proc | variable | reassignment | proc_call
+?statement: proc | variable | reassignment | proc_call | return_statement
+
+return_statement: "return" expression
 
 proc_call: "call" type_list? expression "(" (expression ("," expression)*)? ")"
 

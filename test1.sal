@@ -1,3 +1,4 @@
+import std/Bool.sal
 
 declare proc printf(format *int8, ...) int
 
@@ -15,6 +16,8 @@ template[T] define proc generic_proc(x *$T) $T
     } elif cond seq 3 {
         return 44
     }
+
+    printf(cast(type *int8, &"TRUE = %d\n"), TRUE)
 
     return *x
 }

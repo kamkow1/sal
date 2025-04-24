@@ -480,7 +480,6 @@ def string_name():
 
 class Compiler:
     def __init__(self, source_path, ast):
-        self.ok = True
         self.source_path = source_path
         self.ast = ast
         self.ast_visitors = {
@@ -531,7 +530,7 @@ class Compiler:
 
     def error(self, msg):
         print(msg)
-        self.ok = False
+        sys.exit(1)
 
     def declared(self, node):
         for m in node.modifiers:
@@ -924,25 +923,24 @@ def process_source(source_path, source, opts):
     transformed = Ast_Builder().transform(tree)
     c = Compiler(source_path, transformed)
     c.compile()
-    if c.ok:
-        binding.initialize()
-        binding.initialize_native_target()
-        binding.initialize_native_asmprinter()
+    binding.initialize()
+    binding.initialize_native_target()
+    binding.initialize_native_asmprinter()
 
-        parsed = binding.parse_assembly(str(c.module))
-        parsed.verify()
+    parsed = binding.parse_assembly(str(c.module))
+    parsed.verify()
 
-        if opts.print_llvm_module:
-            print(str(c.module))
+    if opts.print_llvm_module:
+        print(str(c.module))
 
-        target = binding.Target.from_default_triple()
-        machine = target.create_target_machine()
-        with binding.create_mcjit_compiler(parsed, machine) as ee:
-            ee.finalize_object()
-            Main_ptr = ee.get_function_address("Main")
-            Main = ctypes.CFUNCTYPE(None)(Main_ptr)
+    target = binding.Target.from_default_triple()
+    machine = target.create_target_machine()
+    with binding.create_mcjit_compiler(parsed, machine) as ee:
+        ee.finalize_object()
+        Main_ptr = ee.get_function_address("Main")
+        Main = ctypes.CFUNCTYPE(None)(Main_ptr)
 
-            Main()
+        Main()
 
 class Command:
     def __init__(self, fn, desc):

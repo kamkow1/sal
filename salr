@@ -552,13 +552,13 @@ class Compiler:
         return True
 
     def find_value(self, name):
-        for sf in self.stack_frames:
+        for sf in reversed(self.stack_frames):
             if name in sf.values:
                 return sf.values[name]
         return None
     
     def find_generic(self, name):
-        for sf in self.stack_frames:
+        for sf in reversed(self.stack_frames):
             if name in sf.generics:
                 return sf.generics[name]
         return None
@@ -887,8 +887,10 @@ class Compiler:
             cond = self.builder.icmp_signed("!=", cond, ir.Constant(cond.type, 0))
 
         with self.builder.if_then(cond):
+            self.stack_frames.append(Stack_Frame())
             for statement in node.code_block.statements:
                 self.visit(statement)
+            self.stack_frames.pop()
 
         for i, elif_ in enumerate(node.elifs):
             cond2 = self.visit(elif_.cond)
@@ -896,12 +898,16 @@ class Compiler:
                 cond2 = self.builder.icmp_signed("!=", cond2, ir.Constant(cond2.type, 0))
             with self.builder.if_else(cond2) as (then, otherwise):
                 with then:
+                    self.stack_frames.append(Stack_Frame())
                     for statement in elif_.code_block.statements:
                         self.visit(statement)
+                    self.stack_frames.pop()
                 with otherwise:
                     if i == len(node.elifs)-1 and node.else_block is not None:
+                        self.stack_frames.append(Stack_Frame())
                         for statement in node.else_block.code_block.statements:
                             self.visit(statement)
+                        self.stack_frames.pop()
 
     def visit(self, node):
         return self.ast_visitors[type(node).__name__](node)

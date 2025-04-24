@@ -8,6 +8,7 @@ template(T) define proc generic_proc(x *$T) $T
     define var cond int64 = 10
 
     if cond seq 1 {
+        define var aba int = 3
         return 33
     } elif cond seq 2 {
         return 22

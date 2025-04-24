@@ -261,13 +261,13 @@ class Ast_Builder(lark.Transformer):
         )
 
     def proc_call(self, items):
-        if isinstance(items[0], Type_List_Node):
+        if isinstance(items[1], Type_List_Node):
             return Proc_Call_Node(
                 items[0].line,
                 items[0].col,
-                items[1],
+                items[0],
                 items[2:],
-                items[0]
+                items[1]
             )
         else:
             return Proc_Call_Node(

@@ -25,9 +25,9 @@ else_block: "else" code_block
 
 return_statement: "return" expression
 
-proc_call: "call" type_list? expression "(" (expression ("," expression)*)? ")"
+proc_call: expression type_list? "(" (expression ("," expression)*)? ")"
 
-type_list: "(" (expression ("," expression)*)? ")"
+type_list: "[" (expression ("," expression)*)? "]"
 
 variable: modifier* "var" IDENTIFIER type assign?
 
@@ -54,7 +54,7 @@ integer: NUMBER
 
 proc: template? modifier* "proc" IDENTIFIER proc_params type code_block?
 
-template: "template" "(" IDENTIFIER ("," IDENTIFIER)* ")"
+template: "template" "[" IDENTIFIER ("," IDENTIFIER)* "]"
 
 modifier: DECLARE | DEFINE
 

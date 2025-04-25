@@ -434,9 +434,6 @@ class Ast_Builder(lark.Transformer):
             items
         )
 
-def is_void_type(t):
-    return type(t).__name__ == "VoidType"
-
 class Stack_Frame:
     def __init__(self):
         self.values = {}
@@ -460,7 +457,7 @@ class Proc:
 
     def epilogue(self):
         if not self.returned:
-            if is_void_type(self.llvm_func.function_type.return_type):
+            if isinstance(self.llvm_func.function_type.return_type, ir.VoidType):
                 self.compiler.builder.position_at_end(self.compiler.builder.block)
                 self.compiler.builder.ret_void()
             else:
@@ -524,8 +521,9 @@ class Compiler:
         self.load_current_value = True
 
         self.builtins = {
-            "cast": self.cast,
+            "cast":          self.cast,
             "make_template": self.make_template,
+            "import":        self.import_,
         }
 
     def error(self, msg):
@@ -620,6 +618,27 @@ class Compiler:
         g.template = None
 
         self.visit_proc_node(g)
+
+    def import_(self, node, args):
+        if len(args) != 1:
+            self.error(self.source_path + ":" + str(node.line) + ":" + str(node.col)
+                    + ": import(`path string`) requires only one argument.")
+
+        path = args[0].text[1:-1]
+        with open(path, "r") as f:
+            source = f.read()
+            c = process_source(path, source, Process_Source_Options())
+
+            for gv in c.module.global_values:
+                if isinstance(gv.type.pointee, ir.FunctionType):
+                    fn_type = gv.type.pointee
+                    new_gv = ir.Function(self.module, fn_type, gv.name)
+                    old_proc = c.stack_frames[0].values[gv.name]
+                    self.stack_frames[0].values[gv.name] = Proc(self, old_proc.node, new_gv, old_proc.params)
+                else:
+                    new_gv = ir.GlobalVariable(self.module, gv.type.pointee, gv.name)
+                    new_gv.initializer = gv.initializer
+                    self.stack_frames[0].values[gv.name] = Variable(new_gv)
 
     def cast(self, node, args):
         if len(self.stack_frames) == 1:
@@ -758,6 +777,8 @@ class Compiler:
 
     def visit_ptr_type_node(self, node):
         t = self.visit(node.pointee)
+        if isinstance(t, ir.VoidType):
+            t = ir.IntType(8)
         return t.as_pointer()
 
     def visit_reassignment_node(self, node):
@@ -912,21 +933,7 @@ class Compiler:
     def compile(self):
         self.visit(self.ast)
 
-def process_imports(source):
-    for i, line in enumerate(source.splitlines()):
-        parts = line.split()
-        if len(parts) > 0 and parts[0] == "import":
-            source = "\n".join(["" if j == i else l for j, l in enumerate(source.splitlines())])
-            path = parts[1]
-            with open(path, "r") as f:
-                source = f.read() + source
-                source = process_imports(source)
-        else:
-            return source
-
 def process_source(source_path, source, opts):
-    source = process_imports(source)
-
     with open("sal.lark") as f:
         grammar = f.read()
     

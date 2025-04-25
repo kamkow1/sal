@@ -1,4 +1,5 @@
-import std/Bool.sal
+import("std/Bool.sal")
+import("std/Unix.sal")
 
 declare proc printf(format *int8, ...) int
 
@@ -54,5 +55,6 @@ define proc Main() void
 
     printf(cast(type *int8, &"generic_proc: %d\n"), generic_proc[type int](c))
     
+    define var fd int = open(cast(type *int8, &"./aba.txt"), O_CREAT)
 }
 

@@ -723,6 +723,15 @@ class Compiler:
 
                 if v is not None and isinstance(v, Proc):
                     args = [self.visit(arg) for arg in node.args]
+                   
+                    if len(args) != len(v.llvm_func.args) and not v.llvm_func.type.pointee.var_arg:
+                        self.error(self.source_path + ":" + str(node.line) + ":" + str(node.col)
+                                + ": " + name + " takes " + str(len(v.llvm_func.args))
+                                + " arguments, but " + str(len(args)) + " were given.")
+
+                    for i, arg in enumerate(v.llvm_func.args):
+                        if isinstance(args[i].type, ir.PointerType) and isinstance(arg.type, ir.PointerType):
+                            args[i] = self.builder.bitcast(args[i], arg.type)
                     return self.builder.call(v.llvm_func, args)
                 else:
                     self.error(self.source_path + ":" + str(node.line) + ":" + str(node.col)

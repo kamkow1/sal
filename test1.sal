@@ -18,7 +18,7 @@ template[T] define proc generic_proc(x *$T) $T
         return 44
     }
 
-    printf(cast(type *int8, &"TRUE = %d\n"), TRUE)
+    printf(&"TRUE = %d\n", TRUE)
 
     return *x
 }
@@ -49,12 +49,12 @@ define proc Main() void
     define var p *int8 = cast(type *int8, &"Hello world\n")
     printf(p)
 
-    printf(cast(type *int8, &"Hello from SAL, %d\n"), *c)
+    printf(&"Hello from SAL, %d\n", *c)
 
     *c = 6969
 
-    printf(cast(type *int8, &"generic_proc: %d\n"), generic_proc[type int](c))
+    printf(&"generic_proc: %d\n", generic_proc[type int](c))
     
-    define var fd int = open(cast(type *int8, &"./aba.txt"), O_CREAT)
+    // define var fd int = open(&"./aba.txt", O_CREAT)
 }
 

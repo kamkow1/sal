@@ -1,5 +1,5 @@
 
-define var O_RWONLY int = 1
+define var O_WRONLY int = 1
 define var O_CREAT  int = 64
 
 declare proc open(path *int8, flags int, ...) int

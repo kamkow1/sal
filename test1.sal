@@ -55,6 +55,7 @@ define proc Main() void
 
     printf(&"generic_proc: %d\n", generic_proc[type int](c))
     
-    // define var fd int = open(&"./aba.txt", O_CREAT)
+    printf(&"%d\n", O_CREAT | O_WRONLY)
+    define var fd int = open(&"./aba.txt", O_CREAT | O_WRONLY, 0644)
 }
 

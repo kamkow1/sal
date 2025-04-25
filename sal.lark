@@ -43,6 +43,9 @@ assign: "=" expression
     | ("type" type)
     | dereference
     | sequals
+    | bor
+
+bor: expression "|" expression
 
 sequals: expression "seq" expression
 

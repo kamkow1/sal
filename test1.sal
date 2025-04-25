@@ -55,7 +55,10 @@ define proc Main() void
 
     printf(&"generic_proc: %d\n", generic_proc[type int](c))
     
-    printf(&"%d\n", O_CREAT | O_WRONLY)
-    define var fd int = open(&"./aba.txt", O_CREAT | O_WRONLY, 0644)
+    printf(&"%d\n", unix::O_CREAT | unix::O_WRONLY)
+
+    define var fd int = unix::open(&"./aba.txt", unix::O_CREAT | unix::O_WRONLY, 0644)
+    unix::write(fd, &"Hello\n", 6)
+    unix::close(fd)
 }
 

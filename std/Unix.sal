@@ -1,7 +1,10 @@
+namespace unix
 
 define var O_WRONLY int = 1
 define var O_CREAT  int = 64
 
-declare proc open(path *int8, flags int, ...) int
-declare proc write(fd int, buf *void, n int) int
+
+link "open"  declare proc open(path *int8, flags int, ...) int
+link "write" declare proc write(fd int, buf *void, n int) int
+link "close" declare proc close(fd int) int
 

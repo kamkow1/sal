@@ -9,13 +9,21 @@ DECLARE: "declare"
 DEFINE: "define"
 VA_ARGS: "..."
 
-IDENTIFIER: "$"? CNAME
+IDENTIFIER: (CNAME "::")? CNAME | ("$"? CNAME)
 
 start: statement*
 
 code_block: "{" statement* "}"
 
-?statement: proc | variable | reassignment | proc_call | return_statement | if_statement
+?statement: proc
+    | variable
+    | reassignment
+    | proc_call
+    | return_statement
+    | if_statement
+    | namespace
+
+namespace: "namespace" IDENTIFIER
 
 if_statement: "if" expression code_block elif_block* else_block?
 
@@ -55,7 +63,9 @@ addr_of: "&" expression
 
 integer: NUMBER
 
-proc: template? modifier* "proc" IDENTIFIER proc_params type code_block?
+proc: link? template? modifier* "proc" IDENTIFIER proc_params type code_block?
+
+link: "link" ESCAPED_STRING
 
 template: "template" "[" IDENTIFIER ("," IDENTIFIER)* "]"
 

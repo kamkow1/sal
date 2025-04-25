@@ -27,7 +27,7 @@ class Modifier_Node(Node):
         self.modifier = Modifier_Types[name.upper()]
 
 class Proc_Node(Node):
-    def __init__(self, line, col, modifiers, name, proc_params, return_type, code_block, template):
+    def __init__(self, line, col, modifiers, name, proc_params, return_type, code_block, template, link):
         super().__init__(line, col)
         self.modifiers   = modifiers
         self.name        = name
@@ -35,6 +35,7 @@ class Proc_Node(Node):
         self.return_type = return_type
         self.code_block  = code_block
         self.template    = template
+        self.link        = link
 
 class Plain_Type_Node(Node):
     def __init__(self, line, col, name):
@@ -177,6 +178,16 @@ class BOr_Node(Node):
         self.a = a
         self.b = b
 
+class Namespace_Node(Node):
+    def __init__(self, line, col, name):
+        super().__init__(line, col)
+        self.name = name
+
+class Link_Node(Node):
+    def __init__(self, line, col, link):
+        super().__init__(line, col)
+        self.link = link
+
 class Start_Node(Node):
     def __init__(self, line, col, statements):
         super().__init__(line, col)
@@ -197,6 +208,20 @@ class Ast_Builder(lark.Transformer):
             item.line,
             item.column,
             text
+        )
+
+    def link(self, items):
+        return Link_Node(
+            items[0].line,
+            items[0].col,
+            items[0]
+        )
+
+    def namespace(self, items):
+        return Namespace_Node(
+            items[0].line,
+            items[0].col,
+            items[0]
         )
 
     def bor(self, items):
@@ -419,9 +444,14 @@ class Ast_Builder(lark.Transformer):
     def proc(self, items):
         offset = 0
 
+        link = None
+        if isinstance(items[offset], Link_Node):
+            link = items[offset]
+            offset += 1
+
         template = None
-        if isinstance(items[0], Template_Node):
-            template = items[0]
+        if isinstance(items[offset], Template_Node):
+            template = items[offset]
             offset += 1
 
         modifiers = []
@@ -444,6 +474,7 @@ class Ast_Builder(lark.Transformer):
             return_type,
             code_block,
             template,
+            link,
         )
 
     def start(self, items):
@@ -459,12 +490,13 @@ class Stack_Frame:
         self.generics = {}
 
 class Proc:
-    def __init__(self, compiler, node, llvm_func, params):
+    def __init__(self, compiler, node, llvm_func, params, link):
         self.compiler     = compiler
         self.node         = node
         self.llvm_func    = llvm_func
         self.params       = params
         self.returned     = False
+        self.link         = link
 
     def prologue(self):
         prologue = self.llvm_func.append_basic_block("prologue")
@@ -517,6 +549,7 @@ class Compiler:
             "If_Statement_Node":     self.visit_if_statement_node,
             "SEquals_Node":          self.visit_sequals_node,
             "BOr_Node":              self.visit_bor_node,
+            "Namespace_Node":        self.visit_namespace_node,
         }
 
         self.stack_frames = []
@@ -545,6 +578,8 @@ class Compiler:
             "make_template": self.make_template,
             "import":        self.import_,
         }
+
+        self.namespace = ""
 
     def error(self, msg):
         print(msg)
@@ -650,15 +685,19 @@ class Compiler:
             c = process_source(path, source, Process_Source_Options())
 
             for gv in c.module.global_values:
+                name = gv.name
+                if c.namespace != "":
+                    name = c.namespace + "::" + gv.name
+
                 if isinstance(gv.type.pointee, ir.FunctionType):
-                    fn_type = gv.type.pointee
-                    new_gv = ir.Function(self.module, fn_type, gv.name)
                     old_proc = c.stack_frames[0].values[gv.name]
-                    self.stack_frames[0].values[gv.name] = Proc(self, old_proc.node, new_gv, old_proc.params)
+                    fn_type = gv.type.pointee
+                    new_gv = ir.Function(self.module, fn_type, name if old_proc.link == "" else old_proc.link)
+                    self.stack_frames[0].values[name] = Proc(self, old_proc.node, new_gv, old_proc.params, old_proc.link)
                 else:
-                    new_gv = ir.GlobalVariable(self.module, gv.type.pointee, gv.name)
+                    new_gv = ir.GlobalVariable(self.module, gv.type.pointee, name)
                     new_gv.initializer = gv.initializer
-                    self.stack_frames[0].values[gv.name] = Variable(new_gv)
+                    self.stack_frames[0].values[name] = Variable(new_gv)
 
     def cast(self, node, args):
         if len(self.stack_frames) == 1:
@@ -704,6 +743,10 @@ class Compiler:
 
         p = self.find_value(self.builder.function.name)
         p.returned = True
+        return None
+
+    def visit_namespace_node(self, node):
+        self.namespace = node.name.text
         return None
 
     def visit_proc_call_node(self, node):
@@ -911,9 +954,12 @@ class Compiler:
             llvm_func = ir.Function(
                 self.module,
                 ir.FunctionType(return_type, param_types, va_args),
-                name
+                node.link.link.text[1:-1] if node.link is not None else name
             )
-            self.stack_frames[-1].values[name] = Proc(self, node, llvm_func, proc_params)
+            self.stack_frames[-1].values[name] = Proc(self, node,
+                                                    llvm_func,
+                                                    proc_params,
+                                                    node.link.link.text[1:-1] if node.link is not None else "")
             
             if self.defined(node) and node.code_block is None:
                 self.error(self.source_path + ":" + str(node.line) + ":" + str(node.col)

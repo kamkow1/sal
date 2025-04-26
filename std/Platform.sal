@@ -1,4 +1,5 @@
 compile_if T_SYS = "linux" {
     import("std/Platforms/Linux/start.sal")
     import("std/Platforms/Linux/Syscalls.sal")
+    import("std/Platforms/Linux/Common.sal")
 }

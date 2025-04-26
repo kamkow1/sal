@@ -1,8 +1,5 @@
 namespace linux
 
-define var O_WRONLY int = 1
-define var O_CREAT  int = 64
-
 compile_if T_ARCH = "x86_64" {
     define proc do_syscall(
         rax int64,

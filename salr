@@ -1082,44 +1082,6 @@ class Process_Source_Options:
     def __init__(self):
         self.print_llvm_module = False
 
-def run_command(argv):
-    if len(argv) == 0:
-        print("Bad arguments. Help:")
-        print(commands["run"].desc)
-        sys.exit(1)
-
-    file = argv.pop(0)
-
-    opts = Process_Source_Options()
-
-    while len(argv) > 0:
-        arg = argv.pop(0)
-
-        if arg == "-print-llvm-module":
-            opts.print_llvm_module = True
-
-    with open(file, "r") as f:
-        source = f.read()
-    c = process_source(file, source, opts)
-    binding.initialize()
-    binding.initialize_native_target()
-    binding.initialize_native_asmprinter()
-
-    parsed = binding.parse_assembly(str(c.module))
-    parsed.verify()
-
-    if opts.print_llvm_module:
-        print(str(c.module))
-
-    target = binding.Target.from_default_triple()
-    machine = target.create_target_machine()
-    with binding.create_mcjit_compiler(parsed, machine) as ee:
-        ee.finalize_object()
-        Main_ptr = ee.get_function_address("Main")
-        Main = ctypes.CFUNCTYPE(None)(Main_ptr)
-
-        Main()
-
 def build_command(argv):
     if len(argv) == 0:
         print("Bad arguments. Help:")
@@ -1138,12 +1100,13 @@ def build_command(argv):
 
     with open(file, "r") as f:
         source = f.read()
-    c = process_source(file, source, opts)
+    
     binding.initialize()
-    binding.initialize_native_target()
+    binding.initialize_all_targets()
     binding.initialize_native_asmparser()
-    binding.initialize_native_asmprinter()
+    binding.initialize_all_asmprinters()
 
+    c = process_source(file, source, opts)
     parsed = binding.parse_assembly(str(c.module))
     parsed.verify()
 
@@ -1167,14 +1130,6 @@ def help_command(argv):
         print(commands[command].desc)
 
 commands = {
-    "run": Command(
-        run_command,
-        (
-            f"{sys.argv[0]} run <FILE> <options>\n"
-            "Compile and run contetns of <FILE>\n"
-            "-print-llvm-module: outputs text version of LLVM IR\n"
-        )
-    ),
     "build": Command(
         build_command,
         (

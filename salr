@@ -693,6 +693,7 @@ class Compiler:
                     old_proc = c.stack_frames[0].values[gv.name]
                     fn_type = gv.type.pointee
                     new_gv = ir.Function(self.module, fn_type, name if old_proc.link == "" else old_proc.link)
+                    new_gv.blocks = gv.blocks
                     self.stack_frames[0].values[name] = Proc(self, old_proc.node, new_gv, old_proc.params, old_proc.link)
                 else:
                     new_gv = ir.GlobalVariable(self.module, gv.type.pointee, name)
@@ -938,10 +939,6 @@ class Compiler:
             return_type = self.visit(node.return_type)
             proc_params = [self.visit(p) for p in node.proc_params]
             name = node.name.text
-            
-            if not self.name_available(name):
-                self.error(self.source_path + ":" + str(node.line) + ":" + str(node.col)
-                        + ": Item " + name + " is already in scope")
 
             if self.declared(node) and self.defined(node):
                 self.error(self.source_path + ":" + str(node.line) + ":" + str(node.col)
@@ -951,15 +948,17 @@ class Compiler:
             if len(proc_params) > 0:
                 va_args = proc_params[-1][2]
             param_types = [t[1] for t in proc_params] if not va_args else [t[1] for t in proc_params[:-1]]
-            llvm_func = ir.Function(
-                self.module,
-                ir.FunctionType(return_type, param_types, va_args),
-                node.link.link.text[1:-1] if node.link is not None else name
-            )
-            self.stack_frames[-1].values[name] = Proc(self, node,
-                                                    llvm_func,
-                                                    proc_params,
-                                                    node.link.link.text[1:-1] if node.link is not None else "")
+
+            if self.find_value(name) is None:
+                llvm_func = ir.Function(
+                    self.module,
+                    ir.FunctionType(return_type, param_types, va_args),
+                    node.link.link.text[1:-1] if node.link is not None else name
+                )
+                self.stack_frames[-1].values[name] = Proc(self, node,
+                                                        llvm_func,
+                                                        proc_params,
+                                                        node.link.link.text[1:-1] if node.link is not None else "")
             
             if self.defined(node) and node.code_block is None:
                 self.error(self.source_path + ":" + str(node.line) + ":" + str(node.col)
@@ -1071,6 +1070,44 @@ def run_command(argv):
 
         Main()
 
+def build_command(argv):
+    if len(argv) == 0:
+        print("Bad arguments. Help:")
+        print(commands["build"].desc)
+        sys.exit(1)
+
+    file = argv.pop(0)
+
+    opts = Process_Source_Options()
+
+    while len(argv) > 0:
+        arg = argv.pop(0)
+
+        if arg == "-print-llvm-module":
+            opts.print_llvm_module = True
+
+    with open(file, "r") as f:
+        source = f.read()
+    c = process_source(file, source, opts)
+    binding.initialize()
+    binding.initialize_native_target()
+    binding.initialize_native_asmprinter()
+
+    parsed = binding.parse_assembly(str(c.module))
+    parsed.verify()
+
+    if opts.print_llvm_module:
+        print(str(c.module))
+
+    target = binding.Target.from_default_triple()
+    machine = target.create_target_machine()
+    with binding.create_mcjit_compiler(parsed, machine) as mcjit:
+        def on_compiled(module, obj):
+            pre, ext = os.path.splitext(file)
+            open(pre + ".o", "wb").write(obj)
+        mcjit.set_object_cache(on_compiled, lambda m: None)
+        mcjit.finalize_object()
+
 def help_command(argv):
     global commands
 
@@ -1084,6 +1121,15 @@ commands = {
         (
             f"{sys.argv[0]} run <FILE> <options>\n"
             "Compile and run contetns of <FILE>\n"
+            "-print-llvm-module: outputs text version of LLVM IR\n"
+        )
+    ),
+    "build": Command(
+        build_command,
+        (
+            f"{sys.argv[0]} build <FILE> <options>\n"
+            "Compile contetns of <FILE> into a binary object\n"
+            "-print-llvm-module: outputs text version of LLVM IR\n"
         )
     ),
     "help":  Command(

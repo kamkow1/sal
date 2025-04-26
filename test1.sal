@@ -1,7 +1,6 @@
 import("std/Bool.sal")
 import("std/Unix.sal")
-
-declare proc printf(format *int8, ...) int
+import("std/Start/Linux.sal")
 
 declare var b int
 
@@ -18,7 +17,7 @@ template[T] define proc generic_proc(x *$T) $T
         return 44
     }
 
-    printf(&"TRUE = %d\n", TRUE)
+    // printf(&"true = %d\n", true)
 
     return *x
 }
@@ -47,18 +46,18 @@ define proc Main() void
     d = &Main
 
     define var p *int8 = cast(type *int8, &"Hello world\n")
-    printf(p)
+    // printf(p)
 
-    printf(&"Hello from SAL, %d\n", *c)
+    // printf(&"Hello from SAL, %d\n", *c)
 
     *c = 6969
 
-    printf(&"generic_proc: %d\n", generic_proc[type int](c))
+    // printf(&"generic_proc: %d\n", generic_proc[type int](c))
     
-    printf(&"%d\n", unix::O_CREAT | unix::O_WRONLY)
+    // printf(&"%d\n", unix::O_CREAT | unix::O_WRONLY)
 
-    define var fd int = unix::open(&"./aba.txt", unix::O_CREAT | unix::O_WRONLY, 0644)
-    unix::write(fd, &"Hello\n", 6)
-    unix::close(fd)
+    // define var fd int = unix::open(&"./aba.txt", unix::O_CREAT | unix::O_WRONLY, 0644)
+    // unix::write(fd, &"Hello\n", 6)
+    // unix::close(fd)
 }
 

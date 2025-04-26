@@ -1,0 +1,8 @@
+
+declare proc Main() void
+
+define proc _start() void
+{
+    Main()
+}
+

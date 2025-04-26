@@ -1,4 +1,4 @@
 
-define var TRUE bool = 1
-define var FALSE bool = 0
+define var true  bool = 1
+define var false bool = 0
 

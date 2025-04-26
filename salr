@@ -188,6 +188,13 @@ class Link_Node(Node):
         super().__init__(line, col)
         self.link = link
 
+class Compile_If_Node(Node):
+    def __init__(self, line, col, compile_var, cond, code_block):
+        super().__init__(line, col)
+        self.compile_var = compile_var
+        self.cond        = cond
+        self.code_block  = code_block
+
 class Start_Node(Node):
     def __init__(self, line, col, statements):
         super().__init__(line, col)
@@ -208,6 +215,15 @@ class Ast_Builder(lark.Transformer):
             item.line,
             item.column,
             text
+        )
+
+    def compile_if(self, items):
+        return Compile_If_Node(
+            items[0].line,
+            items[0].col,
+            items[0],
+            items[1],
+            items[2]
         )
 
     def link(self, items):
@@ -530,7 +546,8 @@ def string_name():
     return str(sc)
 
 class Compiler:
-    def __init__(self, source_path, ast):
+    def __init__(self, source_path, ast, opts):
+        self.opts = opts
         self.source_path = source_path
         self.ast = ast
         self.ast_visitors = {
@@ -553,6 +570,7 @@ class Compiler:
             "SEquals_Node":          self.visit_sequals_node,
             "BOr_Node":              self.visit_bor_node,
             "Namespace_Node":        self.visit_namespace_node,
+            "Compile_If_Node":       self.visit_compile_if_node,
         }
 
         self.stack_frames = []
@@ -586,6 +604,15 @@ class Compiler:
             "make_template": self.make_template,
             "import":        self.import_,
             "assembler":     self.assembler,
+        }
+
+        triple_parts = self.opts.target.triple.split("-")
+
+        self.compile_vars = {
+            "T_ARCH": triple_parts[0],
+            "T_VENDOR": triple_parts[1],
+            "T_SYS": triple_parts[2],
+            "T_ENV": triple_parts[3],
         }
 
         self.namespace = ""
@@ -710,7 +737,7 @@ class Compiler:
         path = args[0].text[1:-1]
         with open(path, "r") as f:
             source = f.read()
-            c = process_source(path, source, Process_Source_Options())
+            c = process_source(path, source, self.opts)
 
             for f in c.module.functions:
                 if c.namespace != "":
@@ -856,6 +883,19 @@ class Compiler:
         a = self.visit(node.a)
         b = self.visit(node.b)
         return self.builder.or_(a, b)
+
+    def visit_compile_if_node(self, node):
+        compile_var_name = node.compile_var.text
+        if compile_var_name not in self.compile_vars:
+            self.error(self.source_path + ":" + str(node.line) + ":" + str(node.col)
+                    + ": unknown compile variable " + compile_var_name)
+
+        compile_var = self.compile_vars[compile_var_name]
+        cond = node.cond.text[1:-1]
+
+        if cond == compile_var:
+            for statement in node.code_block.statements:
+                self.visit(statement)
 
     def visit_string_node(self, node):
         if len(self.stack_frames) == 1:
@@ -1069,7 +1109,7 @@ def process_source(source_path, source, opts):
     p = lark.Lark(grammar, start="start", ambiguity="explicit")
     tree = p.parse(source)
     transformed = Ast_Builder().transform(tree)
-    c = Compiler(source_path, transformed)
+    c = Compiler(source_path, transformed, opts)
     c.compile()
     return c
 
@@ -1081,6 +1121,7 @@ class Command:
 class Process_Source_Options:
     def __init__(self):
         self.print_llvm_module = False
+        self.target = None
 
 def build_command(argv):
     if len(argv) == 0:
@@ -1101,10 +1142,14 @@ def build_command(argv):
     with open(file, "r") as f:
         source = f.read()
     
+    source = "import(\"std/Platform.sal\")\n" + source
+
     binding.initialize()
     binding.initialize_all_targets()
     binding.initialize_native_asmparser()
     binding.initialize_all_asmprinters()
+    
+    opts.target = binding.Target.from_default_triple()
 
     c = process_source(file, source, opts)
     parsed = binding.parse_assembly(str(c.module))
@@ -1113,8 +1158,7 @@ def build_command(argv):
     if opts.print_llvm_module:
         print(str(c.module))
 
-    target = binding.Target.from_default_triple()
-    machine = target.create_target_machine()
+    machine = opts.target.create_target_machine()
     with binding.create_mcjit_compiler(parsed, machine) as mcjit:
         def on_compiled(module, obj):
             pre, ext = os.path.splitext(file)

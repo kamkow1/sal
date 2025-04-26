@@ -1,6 +1,3 @@
-import("std/Platforms/Linux/start.sal")
-import("std/Platforms/Linux/Syscalls.sal")
-
 define proc Main() void
 {
     define var fd int = linux::open(&"./aba.txt", linux::O_WRONLY | linux::O_CREAT, 0644)

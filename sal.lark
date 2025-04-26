@@ -24,6 +24,9 @@ code_block: "{" statement* "}"
     | return_statement
     | if_statement
     | namespace
+    | compile_if
+
+compile_if: "compile_if" IDENTIFIER "=" ESCAPED_STRING code_block
 
 namespace: "namespace" IDENTIFIER
 

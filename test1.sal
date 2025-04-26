@@ -1,6 +1,4 @@
 import("std/Bool.sal")
-import("std/Unix.sal")
-import("std/Start/Linux.sal")
 
 declare var b int
 
@@ -56,7 +54,7 @@ define proc Main() void
     
     // printf(&"%d\n", unix::O_CREAT | unix::O_WRONLY)
 
-    // define var fd int = unix::open(&"./aba.txt", unix::O_CREAT | unix::O_WRONLY, 0644)
+    // define var fd int = unix::open(&"./aba.txt", unix::O_CREAT | unix::O_WRONLY, cast(type uint16, 0644))
     // unix::write(fd, &"Hello\n", 6)
     // unix::close(fd)
 }

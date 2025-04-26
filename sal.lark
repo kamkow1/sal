@@ -1,6 +1,7 @@
 %import common.CNAME
 %import common.WS
 %import common.NUMBER
+%import common.HEXDIGIT
 %import common.CPP_COMMENT
 %import common.C_COMMENT
 %import common.ESCAPED_STRING
@@ -8,6 +9,7 @@
 DECLARE: "declare"
 DEFINE: "define"
 VA_ARGS: "..."
+HEX_NUMBER: ( "0" "x" ("0".."9" | "a".."f" | "A".."F")+ )
 
 IDENTIFIER: (CNAME "::")? CNAME | ("$"? CNAME)
 
@@ -61,7 +63,7 @@ dereference: "*" expression
 
 addr_of: "&" expression
 
-integer: NUMBER
+integer: NUMBER | HEX_NUMBER
 
 proc: link? template? modifier* "proc" IDENTIFIER proc_params type code_block?
 

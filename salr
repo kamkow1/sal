@@ -335,7 +335,10 @@ class Ast_Builder(lark.Transformer):
     def integer(self, items):
         value = None
         if items[0].value[0] == "0":
-            value = int(items[0].value, 8)
+            if len(items[0].value) > 2 and items[0].value[1] == "x":
+                value = int(items[0].value, 16)
+            else:
+                value = int(items[0].value, 8)
         else:
             value = int(items[0].value)
         return Integer_Node(
@@ -562,6 +565,11 @@ class Compiler:
             "int8":  ir.IntType(8),
             "int64": ir.IntType(64),
             "int16": ir.IntType(16),
+            "uint":   ir.IntType(32),
+            "uint32": ir.IntType(32),
+            "uint8":  ir.IntType(8),
+            "uint64": ir.IntType(64),
+            "uint16": ir.IntType(16),
             "bool": ir.IntType(1)
         }
 
@@ -577,6 +585,7 @@ class Compiler:
             "cast":          self.cast,
             "make_template": self.make_template,
             "import":        self.import_,
+            "assembler":     self.assembler,
         }
 
         self.namespace = ""
@@ -674,6 +683,25 @@ class Compiler:
 
         self.visit_proc_node(g)
 
+    def assembler(self, node, args):
+        instrs = []
+        offset = 0
+        for arg in args:
+            if isinstance(arg, String_Node):
+                instrs.append(arg.text[1:-1])
+        offset += len(instrs)
+        constraints = instrs.pop()
+
+        type_ = self.visit(args[offset])
+        offset += 1
+
+        rest = args[offset:]
+        asm_args = [self.visit(r) for r in rest]
+
+        asm_string = ";".join(instrs)
+        asm = self.builder.asm(type_, asm_string, constraints, asm_args, True)
+        return asm
+
     def import_(self, node, args):
         if len(args) != 1:
             self.error(self.source_path + ":" + str(node.line) + ":" + str(node.col)
@@ -684,21 +712,47 @@ class Compiler:
             source = f.read()
             c = process_source(path, source, Process_Source_Options())
 
+            for f in c.module.functions:
+                if c.namespace != "":
+                    f.name = c.namespace + "::" + f.name
+            
+            for gv in c.module.global_values:
+                if isinstance(gv, ir.GlobalVariable):
+                    if c.namespace != "":
+                        gv.name = c.namespace + "::" + gv.name
+
             for gv in c.module.global_values:
                 name = gv.name
-                if c.namespace != "":
-                    name = c.namespace + "::" + gv.name
+
+                if self.find_value(name) is not None:
+                    continue
 
                 if isinstance(gv.type.pointee, ir.FunctionType):
-                    old_proc = c.stack_frames[0].values[gv.name]
+                    if c.namespace != "":
+                        old_proc = c.stack_frames[0].values[gv.name[len(c.namespace + "::"):]]
+                    else:
+                        old_proc = c.stack_frames[0].values[gv.name]
                     fn_type = gv.type.pointee
                     new_gv = ir.Function(self.module, fn_type, name if old_proc.link == "" else old_proc.link)
                     new_gv.blocks = gv.blocks
+
                     self.stack_frames[0].values[name] = Proc(self, old_proc.node, new_gv, old_proc.params, old_proc.link)
                 else:
                     new_gv = ir.GlobalVariable(self.module, gv.type.pointee, name)
                     new_gv.initializer = gv.initializer
                     self.stack_frames[0].values[name] = Variable(new_gv)
+
+    def cast1(self, value, target):
+        if isinstance(value.type, ir.PointerType) and isinstance(target, ir.PointerType):
+            return self.builder.bitcast(value, target)
+        elif isinstance(value.type, ir.IntType) and isinstance(target, ir.IntType):
+            if target.width < value.type.width:
+                return self.builder.trunc(value, target)
+            elif target.width > value.type.width:
+                return self.builder.zext(value, target)
+        elif isinstance(value.type, ir.PointerType) and isinstance(target, ir.IntType):
+            return self.builder.ptrtoint(value, target)
+        return value
 
     def cast(self, node, args):
         if len(self.stack_frames) == 1:
@@ -710,14 +764,10 @@ class Compiler:
                        + ": cast(type `target`, `value`) requires 2 arguments.")
 
         target = self.visit(args[0])
+        self.current_variable_type = target
         value = self.visit(args[1])
-
-        if isinstance(value.type, ir.PointerType) and isinstance(target, ir.PointerType):
-            return self.builder.bitcast(value, target)
-        else:
-            self.error(self.source_path + ":" + str(node.line) + ":" + str(node.col)
-                    + ": unsupported cast type.")
-        return None
+        self.current_variable_type = None
+        return self.cast1(value, target)
 
     def visit_dereference_node(self, node):
         if len(self.stack_frames) == 1:
@@ -739,8 +789,8 @@ class Compiler:
     def visit_return_statement_node(self, node):
         self.current_variable_type = self.builder.function.type.pointee.return_type
         ret = self.visit(node.ret)
+        self.builder.ret(self.cast1(ret, self.current_variable_type))
         self.current_variable_type = None
-        self.builder.ret(ret)
 
         p = self.find_value(self.builder.function.name)
         p.returned = True
@@ -794,8 +844,8 @@ class Compiler:
                                 + " arguments, but " + str(len(args)) + " were given.")
 
                     for i, arg in enumerate(v.llvm_func.args):
-                        if isinstance(args[i].type, ir.PointerType) and isinstance(arg.type, ir.PointerType):
-                            args[i] = self.builder.bitcast(args[i], arg.type)
+                        args[i] = self.cast1(args[i], arg.type)
+
                     return self.builder.call(v.llvm_func, args)
                 else:
                     self.error(self.source_path + ":" + str(node.line) + ":" + str(node.col)
@@ -826,7 +876,7 @@ class Compiler:
 
     def visit_proc_type_node(self, node):
         return_type = self.visit(node.return_type)
-        proc_params = [self.visit(p) for p in node.proc_params]
+        proc_params = [self.visit(p)[1] for p in node.proc_params]
 
         return ir.FunctionType(return_type, proc_params)
 
@@ -1091,6 +1141,7 @@ def build_command(argv):
     c = process_source(file, source, opts)
     binding.initialize()
     binding.initialize_native_target()
+    binding.initialize_native_asmparser()
     binding.initialize_native_asmprinter()
 
     parsed = binding.parse_assembly(str(c.module))

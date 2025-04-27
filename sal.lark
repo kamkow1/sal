@@ -10,6 +10,15 @@ DECLARE: "declare"
 DEFINE: "define"
 VA_ARGS: "..."
 HEX_NUMBER: ( "0" "x" ("0".."9" | "a".."f" | "A".."F")+ )
+EQ: "=="
+NEQ: "!="
+LT: "<"
+GT: ">"
+LE: "<="
+GE: ">="
+U: "u"
+BOR: "|"
+PLUS: "+"
 
 IDENTIFIER: (CNAME "::")? CNAME | ("$"? CNAME)
 
@@ -25,6 +34,13 @@ code_block: "{" statement* "}"
     | if_statement
     | namespace
     | compile_if
+    | for_statement
+
+for_pre: statement?
+for_cond: expression?
+for_post: statement?
+
+for_statement: "for" for_pre ";" for_cond ";" for_post code_block
 
 compile_if: "compile_if" IDENTIFIER "=" ESCAPED_STRING code_block
 
@@ -55,12 +71,16 @@ assign: "=" expression
     | proc_call
     | ("type" type)
     | dereference
-    | sequals
-    | bor
+    | compare
+    | infix
 
-bor: expression "|" expression
+infix_op: U? (BOR | PLUS)
 
-sequals: expression "seq" expression
+infix: expression infix_op expression
+
+compare_op: U? (EQ | NEQ | LT | GT | LE | GE)
+
+compare: expression compare_op expression
 
 dereference: "*" expression
 

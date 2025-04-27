@@ -1,3 +1,5 @@
+import("std/Bool.sal")
+
 define proc Main() void
 {
     define var fd int = linux::open(&"./aba.txt", linux::O_WRONLY | linux::O_CREAT, 0644)
@@ -5,5 +7,10 @@ define proc Main() void
     linux::write(fd, &"Hello", 5)
 
     linux::close(fd)
+
+    for define var i int = 0; i < 10; i = i + 1 {
+        define var ascii int8 = 48 + i
+        linux::write(1, &ascii, 1)
+    }
 }
 

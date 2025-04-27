@@ -525,6 +525,10 @@ class Proc:
             self.compiler.stack_frames[-1].values[p[0]] = Variable(self.compiler.builder.alloca(p[1], name=p[0]))
             self.compiler.builder.store(self.llvm_func.args[i], self.compiler.stack_frames[-1].values[p[0]].llvm_var)
 
+        body = self.llvm_func.append_basic_block("body")
+        self.compiler.builder.branch(body)
+        self.compiler.builder = ir.IRBuilder(body)
+
     def epilogue(self):
         if not self.returned:
             if isinstance(self.llvm_func.function_type.return_type, ir.VoidType):

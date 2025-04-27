@@ -1,4 +1,4 @@
-import("std/Platforms/Linux/Syscalls.sal")
+import("$HERE/Syscalls.sal")
 
 declare proc Main() void
 

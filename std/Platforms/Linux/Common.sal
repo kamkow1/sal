@@ -1,4 +1,4 @@
-namespace linux
 
-define var O_WRONLY int = 1
-define var O_CREAT  int = 64
+import("$HERE/Common/Fcntl.sal")
+import("$HERE/Common/IO.sal")
+

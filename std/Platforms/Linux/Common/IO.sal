@@ -1,0 +1,5 @@
+namespace linux
+
+define var STDIN  int = 0
+define var STDOUT int = 1
+define var STDERR int = 2

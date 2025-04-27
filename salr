@@ -651,10 +651,11 @@ class Compiler:
         self.load_current_value = True
 
         self.builtins = {
-            "cast":          self.cast,
-            "make_template": self.make_template,
-            "import":        self.import_,
-            "assembler":     self.assembler,
+            "cast":           self.cast,
+            "make_template":  self.make_template,
+            "import":         self.import_,
+            "assembler":      self.assembler,
+            "drop_namespace": self.drop_namespace,
         }
 
         triple_parts = self.opts.target.triple.split("-")
@@ -666,6 +667,7 @@ class Compiler:
             "T_ENV": triple_parts[3],
         }
 
+        self.dropped_namespaces = []
         self.namespace = ""
 
     def error(self, msg):
@@ -694,6 +696,9 @@ class Compiler:
         for sf in reversed(self.stack_frames):
             if name in sf.values:
                 return sf.values[name]
+            for dns in self.dropped_namespaces:
+                if dns + "::" + name in sf.values:
+                    return sf.values[dns + "::" + name]
         return None
     
     def find_generic(self, name):
@@ -761,6 +766,18 @@ class Compiler:
 
         self.visit_proc_node(g)
 
+    def drop_namespace(self, node, args):
+        if len(args) != 1:
+            self.error(self.source_path + ":" + str(node.line) + ":" + str(node.col)
+                    + ": drop_namespace(`namespace`) requires 1 argument.")
+
+        if not isinstance(args[0], String_Node):
+            self.error(self.source_path + ":" + str(node.line) + ":" + str(node.col)
+                    + ": drop_namespace(`namespace`) requires 1 string argument.")
+
+        namespace = args[0].text[1:-1]
+        self.dropped_namespaces.append(namespace)
+
     def assembler(self, node, args):
         instrs = []
         offset = 0
@@ -786,6 +803,14 @@ class Compiler:
                     + ": import(`path string`) requires only one argument.")
 
         path = args[0].text[1:-1]
+
+        if path[0] == "$":
+            parts = path.split("/")
+            if parts[0] == "$HERE":
+                here = os.path.dirname(self.source_path)
+                parts[0] = here
+            path = "/".join(parts)
+
         with open(path, "r") as f:
             source = f.read()
             c = process_source(path, source, self.opts)

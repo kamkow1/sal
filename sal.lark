@@ -24,7 +24,7 @@ IDENTIFIER: (CNAME "::")? CNAME | ("$"? CNAME)
 
 start: statement*
 
-code_block: "{" statement* "}"
+code_block: ( "{" statement* "}" ) | "then" statement
 
 ?statement: proc
     | variable
@@ -46,9 +46,7 @@ compile_if: "compile_if" IDENTIFIER "=" ESCAPED_STRING code_block
 
 namespace: "namespace" IDENTIFIER
 
-if_statement: "if" expression code_block elif_block* else_block?
-
-elif_block: "elif" expression code_block
+if_statement: "if" expression code_block else_block?
 
 else_block: "else" code_block
 

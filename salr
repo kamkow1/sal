@@ -147,23 +147,16 @@ class Return_Statement_Node(Node):
         super().__init__(line, col)
         self.ret = ret
 
-class Elif_Block_Node(Node):
-    def __init__(self, line, col, cond, code_block):
-        super().__init__(line, col)
-        self.cond       = cond
-        self.code_block = code_block
-
 class Else_Block(Node):
     def __init__(self, line, col, code_block):
         super().__init__(line, col)
         self.code_block = code_block
 
 class If_Statement_Node(Node):
-    def __init__(self, line, col, cond, code_block, elifs, else_block):
+    def __init__(self, line, col, cond, code_block, else_block):
         super().__init__(line, col)
         self.cond       = cond
         self.code_block = code_block
-        self.elifs      = elifs
         self.else_block = else_block
 
 class Compare_Node(Node):
@@ -302,14 +295,6 @@ class Ast_Builder(lark.Transformer):
             items[1]
         )
 
-    def elif_block(self, items):
-        return Elif_Block_Node(
-            items[0].line,
-            items[0].col,
-            items[0],
-            items[1]
-        )
-
     def else_block(self, items):
         return Else_Block(
             items[0].line,
@@ -319,14 +304,6 @@ class Ast_Builder(lark.Transformer):
 
     def if_statement(self, items):
         offset = 2
-
-        elifs = []
-        if len(items) > 2:
-            for item in items[offset:]:
-                if isinstance(item, Elif_Block_Node):
-                    elifs.append(item)
-        offset += len(elifs)
-
         else_block = None
         if len(items) - offset == 1:
             else_block = items[-1]
@@ -336,7 +313,6 @@ class Ast_Builder(lark.Transformer):
             items[0].col,
             items[0],
             items[1],
-            elifs,
             else_block
         )
     
@@ -1207,28 +1183,25 @@ class Compiler:
         if type(cond) is not self.types_map["bool"]:
             cond = self.builder.icmp_signed("!=", cond, ir.Constant(cond.type, 0))
 
-        with self.builder.if_then(cond):
-            self.stack_frames.append(Stack_Frame())
-            for statement in node.code_block.statements:
-                self.visit(statement)
-            self.stack_frames.pop()
-
-        for i, elif_ in enumerate(node.elifs):
-            cond2 = self.visit(elif_.cond)
-            if type(cond2) is not self.types_map["bool"]:
-                cond2 = self.builder.icmp_signed("!=", cond2, ir.Constant(cond2.type, 0))
-            with self.builder.if_else(cond2) as (then, otherwise):
-                with then:
+        if node.else_block is None:
+            with self.builder.if_then(cond):
+                self.stack_frames.append(Stack_Frame())
+                for statement in node.code_block.statements:
+                    self.visit(statement)
+                self.stack_frames.pop()
+        else:
+            with self.builder.if_else(cond) as (true, false):
+                with true:
                     self.stack_frames.append(Stack_Frame())
-                    for statement in elif_.code_block.statements:
+                    for statement in node.code_block.statements:
                         self.visit(statement)
                     self.stack_frames.pop()
-                with otherwise:
-                    if i == len(node.elifs)-1 and node.else_block is not None:
-                        self.stack_frames.append(Stack_Frame())
-                        for statement in node.else_block.code_block.statements:
-                            self.visit(statement)
-                        self.stack_frames.pop()
+                with false:
+                    self.stack_frames.append(Stack_Frame())
+                    for statement in node.else_block.code_block.statements:
+                        self.visit(statement)
+                    self.stack_frames.pop()
+        return None
 
     def visit(self, node):
         return self.ast_visitors[type(node).__name__](node)

@@ -4,15 +4,22 @@ drop_namespace("linux")
 
 define proc Main() void
 {
-    define var fd int = open(&"./aba.txt", linux::O_WRONLY | linux::O_CREAT, 0644)
+    define var fd int = open(&"./aba.txt", O_WRONLY | O_CREAT, 0644)
 
     write(fd, &"Hello", 5)
 
     close(fd)
 
     for define var i int = 0; i < 10; i = i + 1 {
-        define var ascii int8 = 48 + i
-        write(1, &ascii, 1)
+        if i == 0 {
+            define var ascii int8 = 97
+            write(STDOUT, &ascii, 1)
+        } else then if i == 9 {
+            // fall through
+        } else {
+            define var ascii int8 = 48 + i
+            write(STDOUT, &ascii, 1)
+        }
     }
 }
 
